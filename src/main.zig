@@ -1,5 +1,6 @@
 const std = @import("std");
 const trie = @import("trie.zig");
+const simple_trie = @import("simple_trie.zig");
 
 pub fn main() anyerror!void {
     //std.log.info("All your codebase are belong to us.", .{});
@@ -13,18 +14,27 @@ pub fn main() anyerror!void {
         "daniel"
     };
 
-    std.log.info("Hello");
+    std.log.info("Hello", .{});
 
-    var builder = trie.ZoomTrieBuilder.init(gpa.allocator());
-    defer(builder.deinit());
+    std.mem.doNotOptimizeAway(strings);
 
-    for (strings) |s| {
-        std.log.info("Adding observation {}", .{s});
-        builder.add_observation(s);
-    }
+    var demo_trie = simple_trie.Trie.init(gpa.allocator());
+    var view = demo_trie.to_view();
+    var res = view.walk_to("fly");
 
-    var demo_trie = try builder.build();
-    demo_trie.dump(gpa.allocator());
+    std.mem.doNotOptimizeAway(view);
+    std.mem.doNotOptimizeAway(res);
+
+    //var builder = trie.ZoomTrieBuilder.init(gpa.allocator());
+    //defer(builder.deinit());
+
+    //for (strings) |s| {
+    //    std.log.info("Adding observation {}", .{s});
+    //    builder.add_observation(s);
+    //}
+
+    //var demo_trie = try builder.build();
+    //demo_trie.dump(gpa.allocator());
 
     //var chunk = try trie.create_chunk(gpa.allocator(), strings[0..strings.len]);
     //try std.fs.cwd().writeFile("test.chunk", chunk.data);
