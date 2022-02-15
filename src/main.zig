@@ -18,9 +18,18 @@ pub fn main() anyerror!void {
 
     std.mem.doNotOptimizeAway(strings);
 
-    var demo_trie = simple_trie.Trie.init(gpa.allocator());
+    std.log.info("\n\nBuilding", .{});
+
+    var demo_trie = try simple_trie.Trie.init(gpa.allocator());
     var view = demo_trie.to_view();
-    var res = view.walk_to("fly");
+    try view.insert("bug");
+
+
+    std.log.info("\n\nQuerying", .{});
+
+    var res = view.walk_to("bu");
+
+    std.log.info("{}", .{res});
 
     std.mem.doNotOptimizeAway(view);
     std.mem.doNotOptimizeAway(res);
