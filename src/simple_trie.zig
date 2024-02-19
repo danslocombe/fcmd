@@ -97,8 +97,7 @@ const TrieNode = struct {
             return null;
         }
 
-        var i: u8 = 0;
-        while (i < self.get_child_size()) : (i += 1) {
+        for (0..@intCast(self.get_child_size())) |i| {
             if (prefix_of(self.children[i], key)) {
                 // Already have the prefix, nothing to do
                 return null;
