@@ -6,11 +6,8 @@ const alloc = @import("alloc.zig");
 const shell_lib = @import("shell.zig");
 
 const console_input = @import("console_input.zig");
-
-const windows = @cImport({
-    @cDefine("WIN32_LEAN_AND_MEAN", "1");
-    @cInclude("Windows.h");
-});
+const data = @import("data.zig");
+const windows = @import("windows.zig");
 
 pub fn main() !void {
     var h_stdin = windows.GetStdHandle(windows.STD_INPUT_HANDLE);
@@ -33,6 +30,9 @@ pub fn main() !void {
     if (windows.SetConsoleOutputCP(UTF8Codepage) == 0) @panic("Failed to set Console Output CodePage");
 
     var shell = shell_lib.Shell.init();
+
+    var backing = data.BackingData.init();
+    _ = backing;
 
     var buffer: [128]windows.INPUT_RECORD = undefined;
     var records_read: u32 = 0;
@@ -91,7 +91,9 @@ pub fn draw(h_stdout: ?*anyopaque, shell: *shell_lib.Shell) void {
 
     var buffer = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ commands, prompt_buffer }) catch unreachable;
     var written: c_ulong = 0;
-    _ = windows.WriteConsoleA(h_stdout, buffer.ptr, @intCast(buffer.len), &written, null);
+    var res = windows.WriteConsoleA(h_stdout, buffer.ptr, @intCast(buffer.len), &written, null);
+    std.debug.assert(res != 0);
+    std.debug.assert(written == buffer.len);
 }
 
 pub fn main_old() anyerror!void {
