@@ -87,13 +87,26 @@ pub fn draw(h_stdout: ?*anyopaque, shell: *shell_lib.Shell) void {
 
     const commands = comptime std.fmt.comptimePrint("{s}{s}", .{ set_cursor_x_to_zero, clear_to_end_of_line });
 
+    var preprompt = build_preprompt();
+    defer (alloc.gpa.allocator().free(preprompt));
+
     var prompt_buffer: []const u8 = shell.current_prompt.bs.items;
 
-    var buffer = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ commands, prompt_buffer }) catch unreachable;
+    var buffer = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ commands, preprompt, ">>> ", prompt_buffer }) catch unreachable;
     var written: c_ulong = 0;
     var res = windows.WriteConsoleA(h_stdout, buffer.ptr, @intCast(buffer.len), &written, null);
     std.debug.assert(res != 0);
     std.debug.assert(written == buffer.len);
+}
+
+pub fn build_preprompt() []const u8 {
+    var cwd = std.fs.cwd();
+    var buffer: [std.os.windows.PATH_MAX_WIDE * 3 + 1]u8 = undefined;
+    var filename = std.os.getFdPath(cwd.fd, &buffer) catch unreachable;
+    var ret = alloc.gpa_alloc_idk(u8, filename.len);
+    @memcpy(ret, filename);
+
+    return ret;
 }
 
 pub fn main_old() anyerror!void {
