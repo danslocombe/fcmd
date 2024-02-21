@@ -25,8 +25,7 @@ pub const BackingData = struct {
 
         if (file_handle == null) {
             var last_error = windows.GetLastError();
-            var s = std.fmt.allocPrint(alloc.gpa.allocator(), "CreateFileA: Error code {}", .{last_error}) catch unreachable;
-            @panic(s);
+            alloc.fmt_panic("CreateFileA: Error code {}", .{last_error});
         }
 
         const size = 64000;
@@ -34,16 +33,14 @@ pub const BackingData = struct {
         var map_handle = windows.CreateFileMapping(file_handle, null, windows.PAGE_READWRITE, 0, size, "Blahhh");
         if (map_handle == null) {
             var last_error = windows.GetLastError();
-            var s = std.fmt.allocPrint(alloc.gpa.allocator(), "CreateFileMapping: Error code {}", .{last_error}) catch unreachable;
-            @panic(s);
+            alloc.fmt_panic("CreateFileMapping: Error code {}", .{last_error});
         }
 
         var map_view = windows.MapViewOfFile(map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size);
 
         if (map_view == null) {
             var last_error = windows.GetLastError();
-            var s = std.fmt.allocPrint(alloc.gpa.allocator(), "MapViewOfFile: Error code {}", .{last_error}) catch unreachable;
-            @panic(s);
+            alloc.fmt_panic("MapViewOfFile: Error code {}", .{last_error});
         }
 
         //var map = .{ .ptr = @as(*u8, @ptrCast(map_view.?)), .len = size };

@@ -41,48 +41,17 @@ pub fn main() !void {
     var backing = data.BackingData.init();
     _ = backing;
 
-    var buffer: [128]windows.INPUT_RECORD = undefined;
-    var records_read: u32 = 0;
-    while (windows.ReadConsoleInputW(h_stdin, &buffer, 128, &records_read) != 0) {
-        var buffered_utf16_chars: [4]u16 = alloc.zeroed(u16, 4);
-        var buffered_utf16_len: usize = 0;
+    var buffer: [64]console_input.Input = undefined;
+    var inputs_produced: usize = 0;
+    while (console_input.read_input(h_stdin, &buffer, &inputs_produced)) {
+        for (0..inputs_produced) |i| {
+            var command = shell_lib.Command{
+                .Input = buffer[i],
+            };
 
-        for (0..@intCast(records_read)) |i| {
-            var record = buffer[i];
-            if (record.EventType == windows.KEY_EVENT) {
-                var key_event = record.Event.KeyEvent;
-                // Only care about keydown events.
-                if (key_event.bKeyDown == 0) {
-                    continue;
-                }
-
-                var utf16Char = key_event.uChar.UnicodeChar;
-
-                buffered_utf16_chars[buffered_utf16_len] = utf16Char;
-                buffered_utf16_len += 1;
-
-                var utf8Char = console_input.Utf8Char{};
-                _ = std.unicode.utf16leToUtf8(&utf8Char.bs, &buffered_utf16_chars) catch {
-                    continue;
-                };
-
-                buffered_utf16_len = 0;
-
-                var ci = console_input.ConsoleInput{
-                    .key = key_event.wVirtualKeyCode,
-                    .utf8_char = utf8Char,
-                    .modifier_keys = key_event.dwControlKeyState,
-                };
-
-                var input = console_input.Input.from_console_input(ci);
-
-                var command = shell_lib.Command{
-                    .Input = input,
-                };
-
-                shell.apply_command(command);
-            }
+            shell.apply_command(command);
         }
+
         draw(&shell);
         alloc.clear_temp_alloc();
     }
@@ -92,14 +61,25 @@ pub fn draw(shell: *shell_lib.Shell) void {
     const set_cursor_x_to_zero = "\x1b[0G";
     const clear_to_end_of_line = "\x1b[K";
 
-    const commands = comptime std.fmt.comptimePrint("{s}{s}", .{ set_cursor_x_to_zero, clear_to_end_of_line });
+    const clear_commands = comptime std.fmt.comptimePrint("{s}{s}", .{ set_cursor_x_to_zero, clear_to_end_of_line });
 
     var preprompt = build_preprompt();
     defer (alloc.gpa.allocator().free(preprompt));
 
     var prompt_buffer: []const u8 = shell.current_prompt.bs.items;
 
-    var buffer = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ commands, preprompt, ">>> ", prompt_buffer }) catch unreachable;
+    // TODO handle setting cursor y pos.
+    var cursor_x_pos = preprompt.len + shell.current_prompt.char_index + 1;
+    var set_cursor_to_prompt_pos = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[{}G", .{cursor_x_pos}) catch unreachable;
+
+    var commands = [_][]const u8{
+        clear_commands,
+        preprompt,
+        prompt_buffer,
+        set_cursor_to_prompt_pos,
+    };
+
+    var buffer = std.mem.concat(alloc.temp_alloc.allocator(), u8, &commands) catch unreachable;
     write_console(buffer);
 }
 
@@ -114,9 +94,8 @@ pub fn build_preprompt() []const u8 {
     var cwd = std.fs.cwd();
     var buffer: [std.os.windows.PATH_MAX_WIDE * 3 + 1]u8 = undefined;
     var filename = std.os.getFdPath(cwd.fd, &buffer) catch unreachable;
-    var ret = alloc.gpa_alloc_idk(u8, filename.len);
-    @memcpy(ret, filename);
 
+    var ret = std.mem.concat(alloc.gpa.allocator(), u8, &.{ filename, ">>> " }) catch unreachable;
     return ret;
 }
 
