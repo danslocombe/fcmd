@@ -9,12 +9,17 @@ const console_input = @import("console_input.zig");
 const data = @import("data.zig");
 const windows = @import("windows.zig");
 
-pub fn main() !void {
-    var h_stdin = windows.GetStdHandle(windows.STD_INPUT_HANDLE);
-    if (h_stdin == null) @panic("Failed to get stdin");
+pub var h_stdout: *anyopaque = undefined;
+pub var h_stdin: *anyopaque = undefined;
 
-    var h_stdout = windows.GetStdHandle(windows.STD_OUTPUT_HANDLE);
-    if (h_stdout == null) @panic("Failed to get stdin");
+pub fn main() !void {
+    var stdin = windows.GetStdHandle(windows.STD_INPUT_HANDLE);
+    if (stdin == null) @panic("Failed to get stdin");
+    h_stdin = stdin.?;
+
+    var stdout = windows.GetStdHandle(windows.STD_OUTPUT_HANDLE);
+    if (stdout == null) @panic("Failed to get stdin");
+    h_stdout = stdout.?;
 
     var current_flags: u32 = 0;
     _ = windows.GetConsoleMode(h_stdin, &current_flags);
@@ -28,6 +33,8 @@ pub fn main() !void {
 
     if (windows.SetConsoleCP(UTF8Codepage) == 0) @panic("Failed to set Console CodePage");
     if (windows.SetConsoleOutputCP(UTF8Codepage) == 0) @panic("Failed to set Console Output CodePage");
+
+    write_console("FroggyCMD 🐸!\n");
 
     var shell = shell_lib.Shell.init();
 
@@ -76,12 +83,12 @@ pub fn main() !void {
                 shell.apply_command(command);
             }
         }
-        draw(h_stdout, &shell);
+        draw(&shell);
         alloc.clear_temp_alloc();
     }
 }
 
-pub fn draw(h_stdout: ?*anyopaque, shell: *shell_lib.Shell) void {
+pub fn draw(shell: *shell_lib.Shell) void {
     const set_cursor_x_to_zero = "\x1b[0G";
     const clear_to_end_of_line = "\x1b[K";
 
@@ -93,10 +100,14 @@ pub fn draw(h_stdout: ?*anyopaque, shell: *shell_lib.Shell) void {
     var prompt_buffer: []const u8 = shell.current_prompt.bs.items;
 
     var buffer = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ commands, preprompt, ">>> ", prompt_buffer }) catch unreachable;
+    write_console(buffer);
+}
+
+pub fn write_console(cs: []const u8) void {
     var written: c_ulong = 0;
-    var res = windows.WriteConsoleA(h_stdout, buffer.ptr, @intCast(buffer.len), &written, null);
+    var res = windows.WriteConsoleA(h_stdout, cs.ptr, @intCast(cs.len), &written, null);
     std.debug.assert(res != 0);
-    std.debug.assert(written == buffer.len);
+    std.debug.assert(written == cs.len);
 }
 
 pub fn build_preprompt() []const u8 {
