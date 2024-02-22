@@ -145,8 +145,6 @@ pub const ConsoleInput = struct {
     modifier_keys: u32,
 };
 
-//pub fn  try_process_key_events_as_
-
 pub const Input = union(enum) {
     Append: Utf8Char,
     Left: void,
@@ -160,8 +158,21 @@ pub const Input = union(enum) {
     Delete: void,
     DeleteBlock: void,
 
+    Exit: void,
+    Home: void,
+    End: void,
+
+    Cls: void,
+
+    Complete: void,
+    PartialComplete: void,
+
+    Enter: void,
+
     pub fn try_from_console_input(ci: ConsoleInput) ?Input {
         var has_ctrl = (ci.modifier_keys & 0x08) != 0;
+
+        // https://github.com/danslocombe/fishycmd/blob/master/src/CLI/KeyPress.hs
 
         // Do we still need these?
 
@@ -209,6 +220,16 @@ pub const Input = union(enum) {
 
         if (ci.utf8_char.bs[0] == '\x1b') {
             return null;
+        }
+
+        if (ci.utf8_char.bs[0] == '\r') {
+            return null;
+        }
+
+        if (ci.utf8_char.bs[0] == '\n') {
+            return Input{
+                .Enter = void{},
+            };
         }
 
         // Del character

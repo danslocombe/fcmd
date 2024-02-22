@@ -45,11 +45,7 @@ pub fn main() !void {
     var inputs_produced: usize = 0;
     while (console_input.read_input(h_stdin, &buffer, &inputs_produced)) {
         for (0..inputs_produced) |i| {
-            var command = shell_lib.Command{
-                .Input = buffer[i],
-            };
-
-            shell.apply_command(command);
+            shell.apply_input(buffer[i]);
         }
 
         draw(&shell);
