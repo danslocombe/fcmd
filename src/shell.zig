@@ -17,11 +17,18 @@ pub const Shell = struct {
         if (Command.try_get_from_input(input)) |command| {
             switch (command) {
                 .Run => {
+
+                    // Handle this nicely
+                    std.debug.print("\n", .{});
+
                     if (run.FroggyCommand.try_get_froggy_command(self.current_prompt.bs.items)) |froggy| {
                         froggy.execute();
                     } else {
+                        run.run_cmd(self.current_prompt.bs.items);
                         // Run command
                     }
+
+                    self.current_prompt.clear();
                 },
                 else => {
                     // TODO

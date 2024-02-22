@@ -223,7 +223,9 @@ pub const Input = union(enum) {
         }
 
         if (ci.utf8_char.bs[0] == '\r') {
-            return null;
+            return Input{
+                .Enter = void{},
+            };
         }
 
         if (ci.utf8_char.bs[0] == '\n') {

@@ -9,6 +9,12 @@ pub const FroggyCommand = union(enum) {
 
     pub fn execute(self: FroggyCommand) void {
         switch (self) {
+            .Cd => |cd| {
+                // Same number of bytes should be enough space
+                var utf16_buffer = alloc.temp_alloc.allocator().alloc(u16, cd.len) catch unreachable;
+                _ = std.unicode.utf8ToUtf16Le(utf16_buffer, cd) catch unreachable;
+                std.os.windows.SetCurrentDirectory(utf16_buffer) catch unreachable;
+            },
             .Echo => |e| {
                 std.debug.print("{s}\n", .{e});
             },
@@ -29,13 +35,13 @@ pub const FroggyCommand = union(enum) {
 
         if (std.mem.eql(u8, splits.first, "echo")) {
             return .{
-                .Cd = splits.rest,
+                .Echo = splits.rest,
             };
         }
 
         if (std.mem.eql(u8, splits.first, "ls")) {
             return .{
-                .Cd = splits.rest,
+                .Ls = void{},
             };
         }
 
@@ -46,9 +52,56 @@ pub const FroggyCommand = union(enum) {
 fn split_first_word(xs: []const u8) struct { first: []const u8, rest: []const u8 } {
     var iter = std.mem.tokenizeAny(u8, xs, " ");
     if (iter.next()) |next| {
+        if (next.len == xs.len) {
+            // Single word
+            return .{ .first = xs, .rest = "" };
+        }
+
         var rest = xs[next.len + 1 ..];
-        return .{ .first = xs, .rest = rest };
+        return .{ .first = next, .rest = rest };
     }
 
     return .{ .first = xs, .rest = "" };
+}
+
+pub fn run_cmd(cmd: []const u8) void {
+    //std.debug.print("Running command {s}\n", .{cmd});
+    var command = std.fmt.allocPrintZ(alloc.temp_alloc.allocator(), "cmd /C {s}", .{cmd}) catch unreachable;
+    var cmd_buf = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), command) catch unreachable;
+
+    const NORMAL_PRIORITY_CLASS = 0x00000020;
+    const CREATE_NEW_PROCESS_GROUP = 0x00000200;
+    const flags = NORMAL_PRIORITY_CLASS | CREATE_NEW_PROCESS_GROUP;
+
+    var startup_info = std.os.windows.STARTUPINFOW{
+        .cb = @sizeOf(std.os.windows.STARTUPINFOW),
+        .lpReserved = null,
+        .lpDesktop = null,
+        .lpTitle = null,
+        .dwX = 0,
+        .dwY = 0,
+        .dwXSize = 0,
+        .dwYSize = 0,
+        .dwXCountChars = 0,
+        .dwYCountChars = 0,
+        .dwFillAttribute = 0,
+        .dwFlags = 0,
+        .wShowWindow = 0,
+        .cbReserved2 = 0,
+        .lpReserved2 = null,
+        .hStdInput = null,
+        .hStdOutput = null,
+        .hStdError = null,
+    };
+
+    var process_info: std.os.windows.PROCESS_INFORMATION = undefined;
+    std.os.windows.CreateProcessW(null, cmd_buf.ptr, null, null, 1, flags, null, null, &startup_info, &process_info) catch |err| {
+        std.debug.print("Error! Unable to run command '{s}', CreateProcessW error {}\n", .{ cmd, err });
+        return;
+    };
+
+    std.os.windows.WaitForSingleObject(process_info.hThread, std.os.windows.INFINITE) catch unreachable;
+
+    std.os.windows.CloseHandle(process_info.hThread);
+    std.os.windows.CloseHandle(process_info.hProcess);
 }

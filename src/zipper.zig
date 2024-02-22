@@ -12,6 +12,12 @@ pub const Zipper = struct {
         };
     }
 
+    pub fn clear(self: *Zipper) void {
+        self.bs.clearRetainingCapacity();
+        self.byte_index = 0;
+        self.char_index = 0;
+    }
+
     pub fn apply_input(self: *Zipper, input: console_input.Input) void {
         switch (input) {
             .Append => |*c| {
