@@ -79,6 +79,16 @@ pub const Zipper = struct {
                     }
                 }
             },
+            .Delete => {
+                _ = self.delete();
+            },
+            .DeleteBlock => {
+                while (self.delete()) |x| {
+                    if (std.mem.eql(u8, x, " ")) {
+                        break;
+                    }
+                }
+            },
             else => {},
         }
     }
@@ -126,6 +136,23 @@ pub const Zipper = struct {
 
         if (ret) |_| {
             self.char_index += 1;
+        }
+
+        return ret;
+    }
+
+    pub fn delete(self: *Zipper) ?[]const u8 {
+        var prev_byte_index = self.byte_index;
+        var ret = self.move_left();
+
+        var delete_byte_count = prev_byte_index - self.byte_index;
+        if (delete_byte_count > 0) {
+            if (prev_byte_index != self.bs.items.len) {
+                // Have to shift some bytes in the middle
+                std.mem.copyForwards(u8, self.bs.items[self.byte_index..], self.bs.items[prev_byte_index..]);
+            }
+
+            self.bs.resize(self.bs.items.len - delete_byte_count) catch unreachable;
         }
 
         return ret;

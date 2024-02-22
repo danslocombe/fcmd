@@ -222,11 +222,7 @@ pub const Input = union(enum) {
 
         // Backspace char
         if (ci.utf8_char.bs[0] == '\x08') {
-            if (has_ctrl) {
-                return .{ .DeleteBlock = void{} };
-            } else {
-                return .{ .Delete = void{} };
-            }
+            return .{ .DeleteBlock = void{} };
         }
 
         return Input{
