@@ -124,6 +124,19 @@ pub fn try_parse_console_inputs_as_escape_sequence(cis: []const ConsoleInput) ?I
                 .BlockRight = void{},
             };
         }
+
+        if (escape_sequence_equal("A", cis[2..])) {
+            return Input{
+                .Up = void{},
+            };
+        }
+
+        if (escape_sequence_equal("B", cis[2..])) {
+            return Input{
+                .Down = void{},
+            };
+        }
+
         {
             var chars: [64][]const u8 = undefined;
             for (cis[2..], 0..) |c, i| {
@@ -161,6 +174,9 @@ pub const Input = union(enum) {
     Exit: void,
     Home: void,
     End: void,
+
+    Up: void,
+    Down: void,
 
     Cls: void,
 
