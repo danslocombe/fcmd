@@ -112,6 +112,12 @@ pub const History = struct {
             return;
         }
 
+        var current_at_write_pos = self.buffer.buffer[self.write_pos];
+        if (std.mem.eql(u8, cmd, current_at_write_pos)) {
+            // Don't push duplicate commands to history
+            return;
+        }
+
         var cmd_copy = alloc.gpa_alloc_idk(u8, cmd.len);
         @memcpy(cmd_copy, cmd);
         var discarded = self.buffer.push(cmd_copy);

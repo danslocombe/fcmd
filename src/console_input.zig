@@ -250,6 +250,20 @@ pub const Input = union(enum) {
             };
         }
 
+        // Ctrl + P
+        if (ci.utf8_char.bs[0] == '\x10') {
+            return Input{
+                .Up = void{},
+            };
+        }
+
+        // Ctrl + N
+        if (ci.utf8_char.bs[0] == '\x0E') {
+            return Input{
+                .Down = void{},
+            };
+        }
+
         // Del character
         if (ci.utf8_char.bs[0] == '\x7F') {
             if (has_ctrl) {
