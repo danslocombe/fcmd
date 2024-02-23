@@ -12,7 +12,7 @@ const windows = @import("windows.zig");
 pub var h_stdout: *anyopaque = undefined;
 pub var h_stdin: *anyopaque = undefined;
 
-pub fn main() !void {
+pub fn main_shell() !void {
     var stdin = windows.GetStdHandle(windows.STD_INPUT_HANDLE);
     if (stdin == null) @panic("Failed to get stdin");
     h_stdin = stdin.?;
@@ -64,6 +64,11 @@ pub fn draw(shell: *shell_lib.Shell) void {
 
     var prompt_buffer: []const u8 = shell.current_prompt.bs.items;
 
+    var completion_command: []const u8 = "";
+    if (shell.current_completion) |completion| {
+        completion_command = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[1m\x1b[31m{s}\x1b[0m", .{completion}) catch unreachable;
+    }
+
     // TODO handle setting cursor y pos.
     var cursor_x_pos = preprompt.len + shell.current_prompt.char_index + 1;
     var set_cursor_to_prompt_pos = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[{}G", .{cursor_x_pos}) catch unreachable;
@@ -72,6 +77,7 @@ pub fn draw(shell: *shell_lib.Shell) void {
         clear_commands,
         preprompt,
         prompt_buffer,
+        completion_command,
         set_cursor_to_prompt_pos,
     };
 
@@ -95,31 +101,29 @@ pub fn build_preprompt() []const u8 {
     return ret;
 }
 
-pub fn main_old() anyerror!void {
+pub fn main() anyerror!void {
     //std.log.info("All your codebase are belong to us.", .{});
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-    var strings = [_][]const u8{ "bug", "fly", "coffee", "daniel" };
+    var strings = [_][]const u8{ "bug", "bad", "coffee", "covefe" };
 
     std.log.info("Hello", .{});
-
-    std.mem.doNotOptimizeAway(strings);
 
     std.log.info("\n\nBuilding", .{});
 
     var demo_trie = try simple_trie.Trie.init(gpa.allocator());
     var view = demo_trie.to_view();
-    try view.insert("bug");
+
+    for (strings) |s| {
+        try view.insert(s);
+    }
 
     std.log.info("\n\nQuerying", .{});
 
     var res = view.walk_to("bu");
 
     std.log.info("{}", .{res});
-
-    std.mem.doNotOptimizeAway(view);
-    std.mem.doNotOptimizeAway(res);
 
     //var builder = trie.ZoomTrieBuilder.init(gpa.allocator());
     //defer(builder.deinit());

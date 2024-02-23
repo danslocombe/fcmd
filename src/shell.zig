@@ -4,10 +4,13 @@ const console_input = @import("console_input.zig");
 const Zipper = @import("zipper.zig").Zipper;
 const run = @import("run.zig");
 const ring_buffer = @import("ring_buffer.zig");
+const CompletionHandler = @import("completion.zig").CompletionHandler;
 
 pub const Shell = struct {
     current_prompt: Zipper,
     history: History,
+    completion_handler: CompletionHandler,
+    current_completion: ?[]const u8 = null,
 
     pub fn init() Shell {
         return .{
@@ -15,6 +18,7 @@ pub const Shell = struct {
             .history = .{
                 .buffer = ring_buffer.RingBuffer([]const u8).init(256, ""),
             },
+            .completion_handler = CompletionHandler.init(),
         };
     }
 
@@ -66,10 +70,9 @@ pub const Shell = struct {
         } else {
             self.current_prompt.apply_input(input);
         }
-    }
 
-    pub fn draw(self: *Shell) void {
-        self.current_prompt.draw();
+        // TODO dont recompute when we dont have to
+        self.current_completion = self.completion_handler.get_completion(self.current_prompt.bs.items);
     }
 };
 

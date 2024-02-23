@@ -31,6 +31,15 @@ pub fn zeroed(comptime T: type, comptime N: usize) [N]T {
     return xs;
 }
 
+pub fn trued(comptime N: usize) [N]bool {
+    var xs: [N]bool = undefined;
+    inline for (0..N) |i| {
+        xs[i] = true;
+    }
+
+    return xs;
+}
+
 pub fn fmt_panic(comptime f: []const u8, xs: anytype) void {
     var s = std.fmt.allocPrint(gpa.allocator(), f, xs) catch unreachable;
     @panic(s);

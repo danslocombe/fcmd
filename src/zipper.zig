@@ -141,12 +141,6 @@ pub const Zipper = struct {
 
         return ret;
     }
-
-    pub fn draw(self: *Zipper) void {
-        _ = std.io.getStdOut().write("\r") catch unreachable;
-        _ = std.io.getStdOut().write(self.bs.items) catch unreachable;
-        //std.debug.print("{s}\n", .{self.bs.items});
-    }
 };
 
 test "zipper move right" {
