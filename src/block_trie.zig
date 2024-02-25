@@ -138,7 +138,7 @@ const TrieBlock = struct {
                     // Create new node
                     trie.blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
                     var new_node_id: u32 = @intCast(trie.blocks.len - 1);
-                    var new_node = &trie.blocks.at(new_node_id);
+                    var new_node = trie.blocks.at(new_node_id);
                     new_node.*.len = 1;
                     new_node.*.node_is_leaf[0] = true;
                     new_node.*.data[0] = 0;
@@ -158,7 +158,7 @@ const TrieBlock = struct {
                 }
 
                 var node_id = self.data[i];
-                var node = &trie.blocks.at(@intCast(node_id));
+                var node = trie.blocks.at(@intCast(node_id));
                 return node.insert_prefix(trie, recurse_key);
             }
         }
@@ -177,7 +177,7 @@ const TrieBlock = struct {
                 self.next = @intCast(new_node_id);
             }
 
-            var next = &trie.blocks.at(@intCast(self.next));
+            var next = trie.blocks.at(@intCast(self.next));
             return next.insert_prefix(trie, key);
         } else {
             // Insert into this node
@@ -194,7 +194,7 @@ const TrieBlock = struct {
 
                 trie.blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
                 var new_node_id: u32 = @intCast(trie.blocks.len - 1);
-                var new_node = &trie.blocks.at(new_node_id);
+                var new_node = trie.blocks.at(new_node_id);
 
                 self.node_is_leaf[child_size] = false;
                 self.data[child_size] = new_node_id;
@@ -206,7 +206,7 @@ const TrieBlock = struct {
 };
 
 pub const Trie = struct {
-    blocks: std.SegmentedList(TrieBlock, 32),
+    blocks: std.SegmentedList(TrieBlock, 0),
 
     const root = 0;
     //tails : std.ArrayList([] const u8),
@@ -219,13 +219,12 @@ pub const Trie = struct {
     }
 
     pub fn init() Trie {
-        var trie = .{
-            .blocks = std.SegmentedList(TrieBlock, 32){},
+        var blocks = std.SegmentedList(TrieBlock, 0){};
+        blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
+
+        return Trie{
+            .blocks = blocks,
         };
-
-        trie.blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
-
-        return trie;
     }
 };
 
@@ -310,7 +309,7 @@ pub const TrieView = struct {
     }
 
     pub fn insert(self: *TrieView, string: []const u8) !void {
-        var node = &self.*.trie.blocks.at(self.*.current_block);
+        var node = self.*.trie.blocks.at(self.*.current_block);
         node.insert_prefix(self.trie, string);
     }
 };

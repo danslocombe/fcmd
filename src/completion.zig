@@ -52,7 +52,7 @@ pub const HistoryCompleter = struct {
         switch (view.walk_to(prefix)) {
             .NoMatch => return null,
             .LeafMatch => |x| {
-                var block = view.trie.blocks.items[@intCast(view.current_block)];
+                var block = view.trie.blocks.at(@intCast(view.current_block));
                 var str = block.nodes[@intCast(x.leaf_child_id)];
                 var rest = str.slice()[x.hack_chars_used_in_leaf..];
                 var copied = alloc.gpa_alloc_idk(u8, rest.len);
