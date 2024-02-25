@@ -1,7 +1,4 @@
 const std = @import("std");
-const trie = @import("trie.zig");
-const simple_trie = @import("simple_trie.zig");
-
 const alloc = @import("alloc.zig");
 const shell_lib = @import("shell.zig");
 
@@ -12,7 +9,7 @@ const windows = @import("windows.zig");
 pub var h_stdout: *anyopaque = undefined;
 pub var h_stdin: *anyopaque = undefined;
 
-pub fn main_shell() !void {
+pub fn main() !void {
     var stdin = windows.GetStdHandle(windows.STD_INPUT_HANDLE);
     if (stdin == null) @panic("Failed to get stdin");
     h_stdin = stdin.?;
@@ -99,47 +96,4 @@ pub fn build_preprompt() []const u8 {
 
     var ret = std.mem.concat(alloc.gpa.allocator(), u8, &.{ filename, ">>> " }) catch unreachable;
     return ret;
-}
-
-pub fn main() anyerror!void {
-    //std.log.info("All your codebase are belong to us.", .{});
-
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-
-    var strings = [_][]const u8{ "bug", "bad", "coffee", "covefe" };
-
-    std.log.info("Hello", .{});
-
-    std.log.info("\n\nBuilding", .{});
-
-    var demo_trie = try simple_trie.Trie.init(gpa.allocator());
-    var view = demo_trie.to_view();
-
-    for (strings) |s| {
-        try view.insert(s);
-    }
-
-    std.log.info("\n\nQuerying", .{});
-
-    var res = view.walk_to("bu");
-
-    std.log.info("{}", .{res});
-
-    //var builder = trie.ZoomTrieBuilder.init(gpa.allocator());
-    //defer(builder.deinit());
-
-    //for (strings) |s| {
-    //    std.log.info("Adding observation {}", .{s});
-    //    builder.add_observation(s);
-    //}
-
-    //var demo_trie = try builder.build();
-    //demo_trie.dump(gpa.allocator());
-
-    //var chunk = try trie.create_chunk(gpa.allocator(), strings[0..strings.len]);
-    //try std.fs.cwd().writeFile("test.chunk", chunk.data);
-}
-
-test "basic test" {
-    try std.testing.expectEqual(10, 3 + 7);
 }

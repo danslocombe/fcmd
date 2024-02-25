@@ -39,6 +39,7 @@ pub const Shell = struct {
                     }
 
                     self.history.push(cmd);
+                    self.completion_handler.update(cmd);
                     self.current_prompt.clear();
                 },
                 .HistoryBack => {
@@ -72,6 +73,9 @@ pub const Shell = struct {
         }
 
         // TODO dont recompute when we dont have to
+        if (self.current_completion) |cc| {
+            alloc.gpa.allocator().free(cc);
+        }
         self.current_completion = self.completion_handler.get_completion(self.current_prompt.bs.items);
     }
 };

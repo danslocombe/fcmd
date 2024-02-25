@@ -95,7 +95,6 @@ const TrieBlock = struct {
 
     pub fn get_child(self: TrieBlock, key: []const u8) ?struct { child_id: u8, used_chars: u8 } {
         const child_size = self.get_child_size();
-        std.log.info("Getting child - child count {d}", .{child_size});
 
         var i: u8 = 0;
         while (i < child_size) : (i += 1) {
@@ -131,18 +130,15 @@ const TrieBlock = struct {
                     recurse_key = key[common_len..];
                 } else {
                     // Split on common prefix
-                    std.log.info("Partial match on child {s}, splitting...", .{child_slice});
-
                     var split_first = child_slice[0..common_len];
                     var split_first_smallstring = SmallStr.from_slice(split_first);
                     var split_second = child_slice[common_len..];
                     var split_second_smallstring = SmallStr.from_slice(split_second);
 
                     // Create new node
-                    // Careful as this can invalidate any pointers to nodes[i] (hence why we make the copies above)
-                    trie.blocks.append(TrieBlock.empty()) catch unreachable;
-                    var new_node_id: u32 = @intCast(trie.blocks.items.len - 1);
-                    var new_node = &trie.blocks.items[new_node_id];
+                    trie.blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
+                    var new_node_id: u32 = @intCast(trie.blocks.len - 1);
+                    var new_node = &trie.blocks.at(new_node_id);
                     new_node.*.len = 1;
                     new_node.*.node_is_leaf[0] = true;
                     new_node.*.data[0] = 0;
@@ -161,9 +157,8 @@ const TrieBlock = struct {
                     return;
                 }
 
-                std.log.info("Recursing", .{});
                 var node_id = self.data[i];
-                var node = &trie.blocks.items[@intCast(node_id)];
+                var node = &trie.blocks.at(@intCast(node_id));
                 return node.insert_prefix(trie, recurse_key);
             }
         }
@@ -177,12 +172,12 @@ const TrieBlock = struct {
 
             // No sibling, need to insert one
             if (self.next == 0) {
-                trie.blocks.append(TrieBlock.empty()) catch unreachable;
-                var new_node_id: u32 = @intCast(trie.blocks.items.len - 1);
+                trie.blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
+                var new_node_id: u32 = @intCast(trie.blocks.len - 1);
                 self.next = @intCast(new_node_id);
             }
 
-            var next = &trie.blocks.items[@intCast(self.next)];
+            var next = &trie.blocks.at(@intCast(self.next));
             return next.insert_prefix(trie, key);
         } else {
             // Insert into this node
@@ -197,9 +192,9 @@ const TrieBlock = struct {
                 self.*.len += 1;
                 _ = self.nodes[child_size].copy_to_smallstr(key[0..SmallStr.SmallStrLen]);
 
-                trie.blocks.append(TrieBlock.empty()) catch unreachable;
-                var new_node_id: u32 = @intCast(trie.blocks.items.len - 1);
-                var new_node = &trie.blocks.items[new_node_id];
+                trie.blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
+                var new_node_id: u32 = @intCast(trie.blocks.len - 1);
+                var new_node = &trie.blocks.at(new_node_id);
 
                 self.node_is_leaf[child_size] = false;
                 self.data[child_size] = new_node_id;
@@ -211,7 +206,7 @@ const TrieBlock = struct {
 };
 
 pub const Trie = struct {
-    blocks: std.ArrayList(TrieBlock),
+    blocks: std.SegmentedList(TrieBlock, 32),
 
     const root = 0;
     //tails : std.ArrayList([] const u8),
@@ -219,16 +214,16 @@ pub const Trie = struct {
     pub fn to_view(self: *Trie) TrieView {
         return .{
             .trie = self,
-            .current_node = root,
+            .current_block = root,
         };
     }
 
-    pub fn init(allocator: std.mem.Allocator) !Trie {
+    pub fn init() Trie {
         var trie = .{
-            .blocks = std.ArrayList(TrieBlock).init(allocator),
+            .blocks = std.SegmentedList(TrieBlock, 32){},
         };
 
-        try trie.blocks.append(TrieBlock.empty());
+        trie.blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
 
         return trie;
     }
@@ -236,13 +231,14 @@ pub const Trie = struct {
 
 pub const WalkResult = union(enum) {
     NoMatch: void,
-    LeafMatch: struct { leaf_child_id: u8, chars_used: u32 },
+    LeafMatch: struct { leaf_child_id: u8, chars_used: u32, hack_chars_used_in_leaf: u32 = 0 },
     NodeMatch: struct { node_id: u32, chars_used: u32 },
 };
 
 pub const TrieView = struct {
     trie: *Trie,
-    current_node: u32,
+    prev_block: u32 = 0,
+    current_block: u32 = 0,
 
     pub fn walk_to(self: *TrieView, prefix: []const u8) WalkResult {
         var i: usize = 0;
@@ -250,9 +246,9 @@ pub const TrieView = struct {
             var current_prefix = prefix[i..];
             switch (self.step_nomove(current_prefix)) {
                 .NoMatch => {
-                    var current = self.trie.blocks.items[self.current_node];
+                    var current = self.trie.blocks.at(self.current_block);
                     if (current.next > 0) {
-                        self.current_node = @intCast(current.next);
+                        self.current_block = @intCast(current.next);
                         continue;
                     } else {
                         return .{ .NoMatch = void{} };
@@ -264,18 +260,20 @@ pub const TrieView = struct {
                         .LeafMatch = .{
                             .leaf_child_id = x.leaf_child_id,
                             .chars_used = @intCast(i),
+                            .hack_chars_used_in_leaf = x.chars_used,
                         },
                     };
                 },
                 .NodeMatch => |x| {
-                    self.current_node = x.node_id;
+                    self.prev_block = self.current_block;
+                    self.current_block = x.node_id;
                     i += @intCast(x.chars_used);
                     if (i < prefix.len) {
                         continue;
                     } else {
                         return .{
                             .NodeMatch = .{
-                                .node_id = self.current_node,
+                                .node_id = self.current_block,
                                 .chars_used = @intCast(i),
                             },
                         };
@@ -286,7 +284,7 @@ pub const TrieView = struct {
     }
 
     pub fn step_nomove(self: *TrieView, prefix: []const u8) WalkResult {
-        var node = self.*.trie.blocks.items[self.*.current_node];
+        var node = self.*.trie.blocks.at(self.*.current_block);
         if (node.get_child(prefix)) |child_match_info| {
             var is_leaf = node.node_is_leaf[@intCast(child_match_info.child_id)];
             var data = node.data[@intCast(child_match_info.child_id)];
@@ -312,7 +310,7 @@ pub const TrieView = struct {
     }
 
     pub fn insert(self: *TrieView, string: []const u8) !void {
-        var node = &self.*.trie.blocks.items[self.*.current_node];
+        var node = &self.*.trie.blocks.at(self.*.current_block);
         node.insert_prefix(self.trie, string);
     }
 };
@@ -326,14 +324,14 @@ test "insert single" {
         "bug",
     };
 
-    var trie = Trie.init(alloc.gpa.allocator()) catch unreachable;
+    var trie = Trie.init();
     var view = trie.to_view();
 
     for (strings) |s| {
         try view.insert(s);
     }
 
-    try test_equal(view.current_node, 0);
+    try test_equal(view.current_block, 0);
     var res = view.walk_to("bug");
     try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 3 });
 }
@@ -343,7 +341,7 @@ test "insert double" {
         "bug", "ben",
     };
 
-    var trie = Trie.init(alloc.gpa.allocator()) catch unreachable;
+    var trie = Trie.init();
     var view = trie.to_view();
 
     for (strings) |s| {
@@ -376,7 +374,7 @@ test "insert promoting leaf to node" {
         "bug", "buggin",
     };
 
-    var trie = Trie.init(alloc.gpa.allocator()) catch unreachable;
+    var trie = Trie.init();
     var view = trie.to_view();
 
     for (strings) |s| {
@@ -397,7 +395,7 @@ test "insert longstring" {
         "longlonglongstring",
     };
 
-    var trie = Trie.init(alloc.gpa.allocator()) catch unreachable;
+    var trie = Trie.init();
     var view = trie.to_view();
 
     for (strings) |s| {
@@ -405,9 +403,14 @@ test "insert longstring" {
     }
 
     view = trie.to_view();
-    var res = view.walk_to("longlonglongstring");
+    var res = view.walk_to("long");
+    try test_equal(res.NodeMatch, .{ .node_id = 1, .chars_used = 4 });
+    try test_equal(view.current_block, 1);
+
+    view = trie.to_view();
+    res = view.walk_to("longlonglongstring");
     try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 18 });
-    try test_equal(view.current_node, 2);
+    try test_equal(view.current_block, 2);
 }
 
 test "insert splillover" {
@@ -430,7 +433,7 @@ test "insert splillover" {
         "ha",
     };
 
-    var trie = Trie.init(alloc.gpa.allocator()) catch unreachable;
+    var trie = Trie.init();
     var view = trie.to_view();
 
     for (strings) |s| {
@@ -440,5 +443,5 @@ test "insert splillover" {
     view = trie.to_view();
     var res = view.walk_to("ba");
     try test_equal(res.LeafMatch, .{ .leaf_child_id = 1, .chars_used = 2 });
-    try test_equal(view.current_node, 1);
+    try test_equal(view.current_block, 1);
 }
