@@ -98,6 +98,13 @@ const TrieNode = struct {
 
         var i: u8 = 0;
         while (i < child_size) : (i += 1) {
+            if (self.children[i].len() == 0) {
+                // Special case
+                // When there is a node and then a leaf below it
+                // We represent that leaf as an empty string
+                // We do not want to walk to that.
+                continue;
+            }
             if (self.children[i].matches(key)) {
                 return .{
                     .child_id = i,
@@ -117,16 +124,10 @@ const TrieNode = struct {
                 var child_slice = (&self.children[i]).slice();
                 var recurse_key: []const u8 = "";
 
-                if (common_len == child_slice.len) {
-                    std.log.info("Partial match on child {s}", .{child_slice});
-                    if (self.child_is_leaf[i]) {
-                        // Already here as a leaf, nothing to do.
-                        return;
-                    } else {
-                        // Exists as a node
-                        // Falthrough to recurse
-                        recurse_key = key[common_len..];
-                    }
+                if (common_len == child_slice.len and !self.child_is_leaf[i]) {
+                    // Exists as a node
+                    // Falthrough to recurse
+                    recurse_key = key[common_len..];
                 } else {
                     // Split on common prefix
                     std.log.info("Partial match on child {s}, splitting...", .{child_slice});
@@ -170,14 +171,18 @@ const TrieNode = struct {
         const child_size = self.*.get_child_size();
 
         if (child_size == TrieChildCount) {
-            // Couldnt find mathces in this node group but there is a sibling
-            // Move and try that.
-            if (self.next > 0) {
-                var next = &trie.nodes.items[@intCast(self.next)];
-                return next.insert_prefix(trie, key);
-            } else {
-                @panic("TODO insert new sibling");
+            // Couldnt find mathces in this node group, and the node group is full
+            // Move to siblings.
+
+            // No sibling, need to insert one
+            if (self.next < 0) {
+                trie.nodes.append(TrieNode.empty()) catch unreachable;
+                var new_node_id: u32 = @intCast(trie.nodes.items.len - 1);
+                self.next = @intCast(new_node_id);
             }
+
+            var next = &trie.nodes.items[@intCast(self.next)];
+            return next.insert_prefix(trie, key);
         } else {
             // Insert into this node
             if (key.len < SmallStr.SmallStrLen) {
@@ -202,12 +207,6 @@ const TrieNode = struct {
             }
         }
     }
-};
-
-// TODO bad allignment waste-y
-pub const ChildKey = struct {
-    node_id: u32,
-    child_id: u8,
 };
 
 pub const Trie = struct {
@@ -249,7 +248,15 @@ pub const TrieView = struct {
         while (true) {
             var current_prefix = prefix[i..];
             switch (self.step_nomove(current_prefix)) {
-                .NoMatch => return .{ .NoMatch = void{} },
+                .NoMatch => {
+                    var current = self.trie.nodes.items[self.current_node];
+                    if (current.next >= 0) {
+                        self.current_node = @intCast(current.next);
+                        continue;
+                    } else {
+                        return .{ .NoMatch = void{} };
+                    }
+                },
                 .LeafMatch => |x| {
                     i += @intCast(x.chars_used);
                     return .{
@@ -278,16 +285,12 @@ pub const TrieView = struct {
     }
 
     pub fn step_nomove(self: *TrieView, prefix: []const u8) WalkResult {
-        std.log.info("Walking to {s}", .{prefix});
-
         var node = self.*.trie.nodes.items[self.*.current_node];
         if (node.get_child(prefix)) |child_match_info| {
-            std.log.info("Walked match_info: {any}, current_node {d}", .{ child_match_info, self.current_node });
             var is_leaf = node.child_is_leaf[@intCast(child_match_info.child_id)];
             var data = node.data[@intCast(child_match_info.child_id)];
 
             if (is_leaf) {
-                std.log.info("Node is leaf with value {d}", .{data});
                 return WalkResult{
                     .LeafMatch = .{
                         .leaf_child_id = child_match_info.child_id,
@@ -385,7 +388,7 @@ test "insert promoting leaf to node" {
 
     view = trie.to_view();
     res = view.walk_to("buggin");
-    try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 6 });
+    try test_equal(res.LeafMatch, .{ .leaf_child_id = 1, .chars_used = 6 });
 }
 
 test "insert longstring" {
@@ -404,4 +407,37 @@ test "insert longstring" {
     var res = view.walk_to("longlonglongstring");
     try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 18 });
     try test_equal(view.current_node, 2);
+}
+
+test "insert splillover" {
+    var strings = [_][]const u8{
+        "0a",
+        "1a",
+        "2a",
+        "3a",
+        "4a",
+        "5a",
+        "6a",
+        "7a",
+        "aa",
+        "ba",
+        "ca",
+        "da",
+        "ea",
+        "fa",
+        "ga",
+        "ha",
+    };
+
+    var trie = Trie.init(alloc.gpa.allocator()) catch unreachable;
+    var view = trie.to_view();
+
+    for (strings) |s| {
+        try view.insert(s);
+    }
+
+    view = trie.to_view();
+    var res = view.walk_to("ba");
+    try test_equal(res.LeafMatch, .{ .leaf_child_id = 1, .chars_used = 2 });
+    try test_equal(view.current_node, 1);
 }
