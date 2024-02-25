@@ -77,7 +77,7 @@ const TrieNode = struct {
     const TrieChildCount = 8;
 
     metadata: u32 = 0,
-    children: [TrieChildCount]SmallStr,
+    children: [TrieChildCount]SmallStr = alloc.defaulted(SmallStr, TrieChildCount),
     data: [TrieChildCount]u32 = alloc.zeroed(u32, TrieChildCount),
     child_is_leaf: [TrieChildCount]bool = alloc.trued(TrieChildCount),
 
@@ -85,7 +85,7 @@ const TrieNode = struct {
     next: i32 = -1,
 
     pub fn empty() TrieNode {
-        return std.mem.zeroes(TrieNode);
+        return TrieNode{};
     }
 
     pub fn get_child_size(self: TrieNode) u8 {
@@ -150,6 +150,8 @@ const TrieNode = struct {
                     self.child_is_leaf[i] = false;
                     self.data[i] = new_node_id;
                     self.children[i] = split_first_smallstring;
+
+                    recurse_key = key[common_len..];
                 }
 
                 if (recurse_key.len == 0) {
@@ -164,23 +166,40 @@ const TrieNode = struct {
             }
         }
 
-        // No longest common prefix, insert new
+        // No matches
         const child_size = self.*.get_child_size();
 
         if (child_size == TrieChildCount) {
-            // Spill over to new node?
-            @panic("TODO Spill over");
-        }
-
-        if (key.len < SmallStr.SmallStrLen) {
-            // Insert single
-            self.*.metadata += 1;
-            std.log.info("Self child size {d}", .{self.get_child_size()});
-            _ = self.children[child_size].copy_to_smallstr(key);
-            self.child_is_leaf[child_size] = true;
-            self.data[child_size] = 0;
+            // Couldnt find mathces in this node group but there is a sibling
+            // Move and try that.
+            if (self.next > 0) {
+                var next = &trie.nodes.items[@intCast(self.next)];
+                return next.insert_prefix(trie, key);
+            } else {
+                @panic("TODO insert new sibling");
+            }
         } else {
-            @panic("TODO need to recurse");
+            // Insert into this node
+            if (key.len < SmallStr.SmallStrLen) {
+                // Insert single
+                self.*.metadata += 1;
+                _ = self.children[child_size].copy_to_smallstr(key);
+                self.child_is_leaf[child_size] = true;
+                self.data[child_size] = 0;
+            } else {
+                // Insert multiple
+                self.*.metadata += 1;
+                _ = self.children[child_size].copy_to_smallstr(key[0..SmallStr.SmallStrLen]);
+
+                trie.nodes.append(TrieNode.empty()) catch unreachable;
+                var new_node_id: u32 = @intCast(trie.nodes.items.len - 1);
+                var new_node = &trie.nodes.items[new_node_id];
+
+                self.child_is_leaf[child_size] = false;
+                self.data[child_size] = new_node_id;
+
+                new_node.insert_prefix(trie, key[SmallStr.SmallStrLen..]);
+            }
         }
     }
 };
@@ -217,15 +236,48 @@ pub const Trie = struct {
 
 pub const WalkResult = union(enum) {
     NoMatch: void,
-    LeafMatch: struct { leaf_child_id: u8, chars_used: u8 },
-    NodeMatch: struct { node_id: u32, chars_used: u8 },
+    LeafMatch: struct { leaf_child_id: u8, chars_used: u32 },
+    NodeMatch: struct { node_id: u32, chars_used: u32 },
 };
 
 pub const TrieView = struct {
     trie: *Trie,
     current_node: u32,
 
-    pub fn walk_single(self: *TrieView, prefix: []const u8) WalkResult {
+    pub fn walk_to(self: *TrieView, prefix: []const u8) WalkResult {
+        var i: usize = 0;
+        while (true) {
+            var current_prefix = prefix[i..];
+            switch (self.step_nomove(current_prefix)) {
+                .NoMatch => return .{ .NoMatch = void{} },
+                .LeafMatch => |x| {
+                    i += @intCast(x.chars_used);
+                    return .{
+                        .LeafMatch = .{
+                            .leaf_child_id = x.leaf_child_id,
+                            .chars_used = @intCast(i),
+                        },
+                    };
+                },
+                .NodeMatch => |x| {
+                    self.current_node = x.node_id;
+                    i += @intCast(x.chars_used);
+                    if (i < prefix.len) {
+                        continue;
+                    } else {
+                        return .{
+                            .NodeMatch = .{
+                                .node_id = self.current_node,
+                                .chars_used = @intCast(i),
+                            },
+                        };
+                    }
+                },
+            }
+        }
+    }
+
+    pub fn step_nomove(self: *TrieView, prefix: []const u8) WalkResult {
         std.log.info("Walking to {s}", .{prefix});
 
         var node = self.*.trie.nodes.items[self.*.current_node];
@@ -239,13 +291,13 @@ pub const TrieView = struct {
                 return WalkResult{
                     .LeafMatch = .{
                         .leaf_child_id = child_match_info.child_id,
-                        .chars_used = child_match_info.used_chars,
+                        .chars_used = @intCast(child_match_info.used_chars),
                     },
                 };
             } else {
                 return WalkResult{ .NodeMatch = .{
                     .node_id = data,
-                    .chars_used = child_match_info.used_chars,
+                    .chars_used = @intCast(child_match_info.used_chars),
                 } };
             }
         }
@@ -257,16 +309,7 @@ pub const TrieView = struct {
 
     pub fn insert(self: *TrieView, string: []const u8) !void {
         var node = &self.*.trie.nodes.items[self.*.current_node];
-
-        var inserted_count = node.insert_prefix(self.trie, string);
-        std.log.info("Inserted {any}", .{inserted_count});
-        std.log.info("node size {d}", .{self.trie.nodes.items[0].get_child_size()});
-
-        //if (node.get_child(string)) |child_id| {
-        //}
-        // If there is a node with common prefix
-        // Otherwise insert one
-
+        node.insert_prefix(self.trie, string);
     }
 };
 
@@ -287,7 +330,7 @@ test "insert single" {
     }
 
     try test_equal(view.current_node, 0);
-    var res = view.walk_single("bug");
+    var res = view.walk_to("bug");
     try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 3 });
 }
 
@@ -303,10 +346,62 @@ test "insert double" {
         try view.insert(s);
     }
 
-    try test_equal(view.current_node, 0);
-    var res = view.walk_single("bug");
+    view = trie.to_view();
+    var res = view.walk_to("b");
     try test_equal(res.NodeMatch, .{ .node_id = 1, .chars_used = 1 });
-    view.current_node = 1;
-    res = view.walk_single("ug");
+
+    view = trie.to_view();
+    res = view.walk_to("be");
+    try test_equal(res.LeafMatch, .{ .leaf_child_id = 1, .chars_used = 2 });
+
+    view = trie.to_view();
+    res = view.walk_to("ben");
+    try test_equal(res.LeafMatch, .{ .leaf_child_id = 1, .chars_used = 3 });
+
+    view = trie.to_view();
+    res = view.walk_to("bu");
     try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 2 });
+
+    view = trie.to_view();
+    res = view.walk_to("bug");
+    try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 3 });
+}
+
+test "insert promoting leaf to node" {
+    var strings = [_][]const u8{
+        "bug", "buggin",
+    };
+
+    var trie = Trie.init(alloc.gpa.allocator()) catch unreachable;
+    var view = trie.to_view();
+
+    for (strings) |s| {
+        try view.insert(s);
+    }
+
+    view = trie.to_view();
+    var res = view.walk_to("bug");
+    try test_equal(res.NodeMatch, .{ .node_id = 1, .chars_used = 3 });
+
+    view = trie.to_view();
+    res = view.walk_to("buggin");
+    try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 6 });
+}
+
+test "insert longstring" {
+    var strings = [_][]const u8{
+        "longlonglongstring",
+    };
+
+    var trie = Trie.init(alloc.gpa.allocator()) catch unreachable;
+    var view = trie.to_view();
+
+    for (strings) |s| {
+        try view.insert(s);
+    }
+
+    view = trie.to_view();
+    var res = view.walk_to("longlonglongstring");
+    try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 18 });
+    try test_equal(view.current_node, 2);
 }
