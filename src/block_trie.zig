@@ -73,42 +73,43 @@ pub const SmallStr = struct {
     }
 };
 
-const TrieNode = struct {
+const TrieBlock = struct {
     const TrieChildCount = 8;
 
-    metadata: u32 = 0,
-    children: [TrieChildCount]SmallStr = alloc.defaulted(SmallStr, TrieChildCount),
+    len: u32 = 0,
+    nodes: [TrieChildCount]SmallStr = alloc.defaulted(SmallStr, TrieChildCount),
     data: [TrieChildCount]u32 = alloc.zeroed(u32, TrieChildCount),
-    child_is_leaf: [TrieChildCount]bool = alloc.trued(TrieChildCount),
+    node_is_leaf: [TrieChildCount]bool = alloc.trued(TrieChildCount),
 
     // Id of sibling trie node if we need to spill over
-    next: i32 = -1,
+    // We treat 0 is invalid as 0 indicates the root node which can never be a sibling
+    next: u32 = 0,
 
-    pub fn empty() TrieNode {
-        return TrieNode{};
+    pub fn empty() TrieBlock {
+        return TrieBlock{};
     }
 
-    pub fn get_child_size(self: TrieNode) u8 {
-        return @as(u8, @intCast(self.metadata));
+    pub fn get_child_size(self: TrieBlock) u8 {
+        return @as(u8, @intCast(self.len));
     }
 
-    pub fn get_child(self: TrieNode, key: []const u8) ?struct { child_id: u8, used_chars: u8 } {
+    pub fn get_child(self: TrieBlock, key: []const u8) ?struct { child_id: u8, used_chars: u8 } {
         const child_size = self.get_child_size();
         std.log.info("Getting child - child count {d}", .{child_size});
 
         var i: u8 = 0;
         while (i < child_size) : (i += 1) {
-            if (self.children[i].len() == 0) {
+            if (self.nodes[i].len() == 0) {
                 // Special case
                 // When there is a node and then a leaf below it
                 // We represent that leaf as an empty string
                 // We do not want to walk to that.
                 continue;
             }
-            if (self.children[i].matches(key)) {
+            if (self.nodes[i].matches(key)) {
                 return .{
                     .child_id = i,
-                    .used_chars = @min(key.len, self.children[i].len()),
+                    .used_chars = @min(key.len, self.nodes[i].len()),
                 };
             }
         }
@@ -116,15 +117,15 @@ const TrieNode = struct {
         return null;
     }
 
-    pub fn insert_prefix(self: *TrieNode, trie: *Trie, key: []const u8) void {
+    pub fn insert_prefix(self: *TrieBlock, trie: *Trie, key: []const u8) void {
         for (0..@intCast(self.get_child_size())) |i| {
-            const common_len = self.children[i].common_prefix_len(key);
+            const common_len = self.nodes[i].common_prefix_len(key);
 
             if (common_len > 0) {
-                var child_slice = (&self.children[i]).slice();
+                var child_slice = (&self.nodes[i]).slice();
                 var recurse_key: []const u8 = "";
 
-                if (common_len == child_slice.len and !self.child_is_leaf[i]) {
+                if (common_len == child_slice.len and !self.node_is_leaf[i]) {
                     // Exists as a node
                     // Falthrough to recurse
                     recurse_key = key[common_len..];
@@ -138,19 +139,19 @@ const TrieNode = struct {
                     var split_second_smallstring = SmallStr.from_slice(split_second);
 
                     // Create new node
-                    // Careful as this can invalidate any pointers to children[i] (hence why we make the copies above)
-                    trie.nodes.append(TrieNode.empty()) catch unreachable;
-                    var new_node_id: u32 = @intCast(trie.nodes.items.len - 1);
-                    var new_node = &trie.nodes.items[new_node_id];
-                    new_node.*.metadata = 1;
-                    new_node.*.child_is_leaf[0] = true;
+                    // Careful as this can invalidate any pointers to nodes[i] (hence why we make the copies above)
+                    trie.blocks.append(TrieBlock.empty()) catch unreachable;
+                    var new_node_id: u32 = @intCast(trie.blocks.items.len - 1);
+                    var new_node = &trie.blocks.items[new_node_id];
+                    new_node.*.len = 1;
+                    new_node.*.node_is_leaf[0] = true;
                     new_node.*.data[0] = 0;
-                    new_node.*.children[0] = split_second_smallstring;
+                    new_node.*.nodes[0] = split_second_smallstring;
 
                     // Update existing node
-                    self.child_is_leaf[i] = false;
+                    self.node_is_leaf[i] = false;
                     self.data[i] = new_node_id;
-                    self.children[i] = split_first_smallstring;
+                    self.nodes[i] = split_first_smallstring;
 
                     recurse_key = key[common_len..];
                 }
@@ -162,7 +163,7 @@ const TrieNode = struct {
 
                 std.log.info("Recursing", .{});
                 var node_id = self.data[i];
-                var node = &trie.nodes.items[@intCast(node_id)];
+                var node = &trie.blocks.items[@intCast(node_id)];
                 return node.insert_prefix(trie, recurse_key);
             }
         }
@@ -175,32 +176,32 @@ const TrieNode = struct {
             // Move to siblings.
 
             // No sibling, need to insert one
-            if (self.next < 0) {
-                trie.nodes.append(TrieNode.empty()) catch unreachable;
-                var new_node_id: u32 = @intCast(trie.nodes.items.len - 1);
+            if (self.next == 0) {
+                trie.blocks.append(TrieBlock.empty()) catch unreachable;
+                var new_node_id: u32 = @intCast(trie.blocks.items.len - 1);
                 self.next = @intCast(new_node_id);
             }
 
-            var next = &trie.nodes.items[@intCast(self.next)];
+            var next = &trie.blocks.items[@intCast(self.next)];
             return next.insert_prefix(trie, key);
         } else {
             // Insert into this node
             if (key.len < SmallStr.SmallStrLen) {
                 // Insert single
-                self.*.metadata += 1;
-                _ = self.children[child_size].copy_to_smallstr(key);
-                self.child_is_leaf[child_size] = true;
+                self.*.len += 1;
+                _ = self.nodes[child_size].copy_to_smallstr(key);
+                self.node_is_leaf[child_size] = true;
                 self.data[child_size] = 0;
             } else {
                 // Insert multiple
-                self.*.metadata += 1;
-                _ = self.children[child_size].copy_to_smallstr(key[0..SmallStr.SmallStrLen]);
+                self.*.len += 1;
+                _ = self.nodes[child_size].copy_to_smallstr(key[0..SmallStr.SmallStrLen]);
 
-                trie.nodes.append(TrieNode.empty()) catch unreachable;
-                var new_node_id: u32 = @intCast(trie.nodes.items.len - 1);
-                var new_node = &trie.nodes.items[new_node_id];
+                trie.blocks.append(TrieBlock.empty()) catch unreachable;
+                var new_node_id: u32 = @intCast(trie.blocks.items.len - 1);
+                var new_node = &trie.blocks.items[new_node_id];
 
-                self.child_is_leaf[child_size] = false;
+                self.node_is_leaf[child_size] = false;
                 self.data[child_size] = new_node_id;
 
                 new_node.insert_prefix(trie, key[SmallStr.SmallStrLen..]);
@@ -210,24 +211,24 @@ const TrieNode = struct {
 };
 
 pub const Trie = struct {
-    root: u32,
-    nodes: std.ArrayList(TrieNode),
+    blocks: std.ArrayList(TrieBlock),
+
+    const root = 0;
     //tails : std.ArrayList([] const u8),
 
     pub fn to_view(self: *Trie) TrieView {
         return .{
             .trie = self,
-            .current_node = self.*.root,
+            .current_node = root,
         };
     }
 
     pub fn init(allocator: std.mem.Allocator) !Trie {
         var trie = .{
-            .root = 0,
-            .nodes = std.ArrayList(TrieNode).init(allocator),
+            .blocks = std.ArrayList(TrieBlock).init(allocator),
         };
 
-        try trie.nodes.append(TrieNode.empty());
+        try trie.blocks.append(TrieBlock.empty());
 
         return trie;
     }
@@ -249,8 +250,8 @@ pub const TrieView = struct {
             var current_prefix = prefix[i..];
             switch (self.step_nomove(current_prefix)) {
                 .NoMatch => {
-                    var current = self.trie.nodes.items[self.current_node];
-                    if (current.next >= 0) {
+                    var current = self.trie.blocks.items[self.current_node];
+                    if (current.next > 0) {
                         self.current_node = @intCast(current.next);
                         continue;
                     } else {
@@ -285,9 +286,9 @@ pub const TrieView = struct {
     }
 
     pub fn step_nomove(self: *TrieView, prefix: []const u8) WalkResult {
-        var node = self.*.trie.nodes.items[self.*.current_node];
+        var node = self.*.trie.blocks.items[self.*.current_node];
         if (node.get_child(prefix)) |child_match_info| {
-            var is_leaf = node.child_is_leaf[@intCast(child_match_info.child_id)];
+            var is_leaf = node.node_is_leaf[@intCast(child_match_info.child_id)];
             var data = node.data[@intCast(child_match_info.child_id)];
 
             if (is_leaf) {
@@ -311,7 +312,7 @@ pub const TrieView = struct {
     }
 
     pub fn insert(self: *TrieView, string: []const u8) !void {
-        var node = &self.*.trie.nodes.items[self.*.current_node];
+        var node = &self.*.trie.blocks.items[self.*.current_node];
         node.insert_prefix(self.trie, string);
     }
 };
