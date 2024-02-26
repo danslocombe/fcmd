@@ -2,7 +2,7 @@ const std = @import("std");
 const alloc = @import("alloc.zig");
 
 pub const SmallStr = struct {
-    const SmallStrLen = 8;
+    pub const SmallStrLen = 8;
 
     data: [SmallStrLen]u8 = alloc.zeroed(u8, SmallStrLen),
 
@@ -242,7 +242,6 @@ pub const StepResult = union(enum) {
 
 pub const TrieWalker = struct {
     trie_view: TrieView,
-    current_block: u32,
 
     chars_within_node: u32 = 0,
     node_id: u8 = 0,
@@ -254,21 +253,23 @@ pub const TrieWalker = struct {
     pub fn init(view: TrieView, prefix: []const u8) TrieWalker {
         return TrieWalker{
             .trie_view = view,
-            .current_block = view.current_block,
-
             .prefix = prefix,
         };
+    }
+
+    pub fn walk_trivial(self: *TrieWalker) void {
+        _ = self;
     }
 
     pub fn walk_to(self: *TrieWalker) bool {
         while (true) {
             var current_prefix = self.prefix[self.char_id..];
-            var current = self.trie_view.trie.blocks.at(self.current_block);
+            var current = self.trie_view.trie.blocks.at(self.trie_view.current_block);
             self.extension = .{};
             switch (self.trie_view.step_nomove(current_prefix)) {
                 .NoMatch => {
                     if (current.next > 0) {
-                        self.current_block = @intCast(current.next);
+                        self.trie_view.current_block = @intCast(current.next);
                         continue;
                     } else {
                         return false;
@@ -279,14 +280,6 @@ pub const TrieWalker = struct {
                     self.node_id = x.node_id;
                     var node = current.nodes[@intCast(x.node_id)];
                     _ = self.extension.copy_to_smallstr(node.slice()[@intCast(x.chars_used)..]);
-
-                    //return .{
-                    //    .LeafMatch = .{
-                    //        .leaf_child_id = x.leaf_child_id,
-                    //        .chars_used = @intCast(i),
-                    //        .hack_chars_used_in_leaf = x.chars_used,
-                    //    },
-                    //};
                     return true;
                 },
                 .NodeMatch => |x| {
@@ -295,16 +288,10 @@ pub const TrieWalker = struct {
                     var node = current.nodes[@intCast(x.node_id)];
                     _ = self.extension.copy_to_smallstr(node.slice()[@intCast(x.chars_used)..]);
 
-                    self.current_block = x.next_chunk_id;
+                    self.trie_view.current_block = x.next_chunk_id;
                     if (self.char_id < self.prefix.len) {
                         continue;
                     } else {
-                        //return .{
-                        //    .NodeMatch = .{
-                        //        .node_id = self.current_block,
-                        //        .chars_used = @intCast(i),
-                        //    },
-                        //};
                         return true;
                     }
                 },

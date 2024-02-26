@@ -51,24 +51,12 @@ pub const HistoryCompleter = struct {
         var view = self.trie.to_view();
         var walker = block_trie.TrieWalker.init(view, prefix);
         if (walker.walk_to()) {
-            @panic("TODO");
+            var extension = walker.extension.slice();
+            var buffer = alloc.gpa_alloc_idk(u8, extension.len);
+            @memcpy(buffer, extension);
+            return buffer;
         }
 
         return null;
-        //    .NoMatch => return null,
-        //    .LeafMatch => |x| {
-        //        var block = view.trie.blocks.at(@intCast(view.current_block));
-        //        var str = block.nodes[@intCast(x.leaf_child_id)];
-        //        var rest = str.slice()[x.hack_chars_used_in_leaf..];
-        //        var copied = alloc.gpa_alloc_idk(u8, rest.len);
-        //        @memcpy(copied, rest);
-        //        return copied;
-        //    },
-        //    .NodeMatch => |x| {
-        //        _ = x;
-        //        // TODO
-        //        return null;
-        //    },
-        //}
     }
 };
