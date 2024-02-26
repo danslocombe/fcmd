@@ -130,6 +130,7 @@ const TrieBlock = struct {
                     // Exists as a node
                     // Falthrough to recurse
                     recurse_key = key[common_len..];
+                    self.costs[i] = @min(self.costs[i], cost);
                 } else {
                     // Split on common prefix
                     var split_first = child_slice[0..common_len];
@@ -345,6 +346,7 @@ pub const TrieWalker = struct {
 
     node_id: u8 = 0,
     char_id: usize = 0,
+    cost: u16 = 0,
 
     prefix: []const u8,
     extension: SmallStr = .{},
@@ -379,6 +381,7 @@ pub const TrieWalker = struct {
                     self.node_id = x.node_id;
                     var node = current.nodes[@intCast(x.node_id)];
                     _ = self.extension.copy_to_smallstr(node.slice()[@intCast(x.chars_used)..]);
+                    self.cost = current.costs[@intCast(x.node_id)];
                     return true;
                 },
                 .NodeMatch => |x| {
@@ -386,6 +389,7 @@ pub const TrieWalker = struct {
                     self.node_id = x.node_id;
                     var node = current.nodes[@intCast(x.node_id)];
                     _ = self.extension.copy_to_smallstr(node.slice()[@intCast(x.chars_used)..]);
+                    self.cost = current.costs[@intCast(x.node_id)];
 
                     self.trie_view.current_block = x.next_chunk_id;
                     if (self.char_id < self.prefix.len) {
