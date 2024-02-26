@@ -49,21 +49,26 @@ pub const HistoryCompleter = struct {
 
     pub fn get_completion(self: *HistoryCompleter, prefix: []const u8) ?[]const u8 {
         var view = self.trie.to_view();
-        switch (view.walk_to(prefix)) {
-            .NoMatch => return null,
-            .LeafMatch => |x| {
-                var block = view.trie.blocks.at(@intCast(view.current_block));
-                var str = block.nodes[@intCast(x.leaf_child_id)];
-                var rest = str.slice()[x.hack_chars_used_in_leaf..];
-                var copied = alloc.gpa_alloc_idk(u8, rest.len);
-                @memcpy(copied, rest);
-                return copied;
-            },
-            .NodeMatch => |x| {
-                _ = x;
-                // TODO
-                return null;
-            },
+        var walker = block_trie.TrieWalker.init(view, prefix);
+        if (walker.walk_to()) {
+            @panic("TODO");
         }
+
+        return null;
+        //    .NoMatch => return null,
+        //    .LeafMatch => |x| {
+        //        var block = view.trie.blocks.at(@intCast(view.current_block));
+        //        var str = block.nodes[@intCast(x.leaf_child_id)];
+        //        var rest = str.slice()[x.hack_chars_used_in_leaf..];
+        //        var copied = alloc.gpa_alloc_idk(u8, rest.len);
+        //        @memcpy(copied, rest);
+        //        return copied;
+        //    },
+        //    .NodeMatch => |x| {
+        //        _ = x;
+        //        // TODO
+        //        return null;
+        //    },
+        //}
     }
 };

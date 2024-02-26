@@ -93,7 +93,7 @@ const TrieBlock = struct {
         return @as(u8, @intCast(self.len));
     }
 
-    pub fn get_child(self: TrieBlock, key: []const u8) ?struct { child_id: u8, used_chars: u8 } {
+    pub fn get_child(self: TrieBlock, key: []const u8) ?struct { node_id: u8, used_chars: u8 } {
         const child_size = self.get_child_size();
 
         var i: u8 = 0;
@@ -107,7 +107,7 @@ const TrieBlock = struct {
             }
             if (self.nodes[i].matches(key)) {
                 return .{
-                    .child_id = i,
+                    .node_id = i,
                     .used_chars = @min(key.len, self.nodes[i].len()),
                 };
             }
@@ -228,82 +228,119 @@ pub const Trie = struct {
     }
 };
 
-pub const WalkResult = union(enum) {
+//pub const WalkResult = union(enum) {
+//    NoMatch: void,
+//    LeafMatch: struct { leaf_child_id: u8, chars_used: u32, hack_chars_used_in_leaf: u32 = 0 },
+//    NodeMatch: struct { node_id: u32, chars_used: u32 },
+//};
+
+pub const StepResult = union(enum) {
     NoMatch: void,
-    LeafMatch: struct { leaf_child_id: u8, chars_used: u32, hack_chars_used_in_leaf: u32 = 0 },
-    NodeMatch: struct { node_id: u32, chars_used: u32 },
+    LeafMatch: struct { node_id: u8, data: u32, chars_used: u8 },
+    NodeMatch: struct { node_id: u8, next_chunk_id: u32, chars_used: u8 },
 };
 
-pub const TrieView = struct {
-    trie: *Trie,
-    prev_block: u32 = 0,
-    current_block: u32 = 0,
+pub const TrieWalker = struct {
+    trie_view: TrieView,
+    current_block: u32,
 
-    pub fn walk_to(self: *TrieView, prefix: []const u8) WalkResult {
-        var i: usize = 0;
+    chars_within_node: u32 = 0,
+    node_id: u8 = 0,
+    char_id: usize = 0,
+
+    prefix: []const u8,
+    extension: SmallStr = .{},
+
+    pub fn init(view: TrieView, prefix: []const u8) TrieWalker {
+        return TrieWalker{
+            .trie_view = view,
+            .current_block = view.current_block,
+
+            .prefix = prefix,
+        };
+    }
+
+    pub fn walk_to(self: *TrieWalker) bool {
         while (true) {
-            var current_prefix = prefix[i..];
-            switch (self.step_nomove(current_prefix)) {
+            var current_prefix = self.prefix[self.char_id..];
+            var current = self.trie_view.trie.blocks.at(self.current_block);
+            self.extension = .{};
+            switch (self.trie_view.step_nomove(current_prefix)) {
                 .NoMatch => {
-                    var current = self.trie.blocks.at(self.current_block);
                     if (current.next > 0) {
                         self.current_block = @intCast(current.next);
                         continue;
                     } else {
-                        return .{ .NoMatch = void{} };
+                        return false;
                     }
                 },
                 .LeafMatch => |x| {
-                    i += @intCast(x.chars_used);
-                    return .{
-                        .LeafMatch = .{
-                            .leaf_child_id = x.leaf_child_id,
-                            .chars_used = @intCast(i),
-                            .hack_chars_used_in_leaf = x.chars_used,
-                        },
-                    };
+                    self.char_id += @intCast(x.chars_used);
+                    self.node_id = x.node_id;
+                    var node = current.nodes[@intCast(x.node_id)];
+                    _ = self.extension.copy_to_smallstr(node.slice()[@intCast(x.chars_used)..]);
+
+                    //return .{
+                    //    .LeafMatch = .{
+                    //        .leaf_child_id = x.leaf_child_id,
+                    //        .chars_used = @intCast(i),
+                    //        .hack_chars_used_in_leaf = x.chars_used,
+                    //    },
+                    //};
+                    return true;
                 },
                 .NodeMatch => |x| {
-                    self.prev_block = self.current_block;
-                    self.current_block = x.node_id;
-                    i += @intCast(x.chars_used);
-                    if (i < prefix.len) {
+                    self.char_id += @intCast(x.chars_used);
+                    self.node_id = x.node_id;
+                    var node = current.nodes[@intCast(x.node_id)];
+                    _ = self.extension.copy_to_smallstr(node.slice()[@intCast(x.chars_used)..]);
+
+                    self.current_block = x.next_chunk_id;
+                    if (self.char_id < self.prefix.len) {
                         continue;
                     } else {
-                        return .{
-                            .NodeMatch = .{
-                                .node_id = self.current_block,
-                                .chars_used = @intCast(i),
-                            },
-                        };
+                        //return .{
+                        //    .NodeMatch = .{
+                        //        .node_id = self.current_block,
+                        //        .chars_used = @intCast(i),
+                        //    },
+                        //};
+                        return true;
                     }
                 },
             }
         }
     }
+};
 
-    pub fn step_nomove(self: *TrieView, prefix: []const u8) WalkResult {
+pub const TrieView = struct {
+    trie: *Trie,
+    current_block: u32 = 0,
+
+    pub fn step_nomove(self: *TrieView, prefix: []const u8) StepResult {
         var node = self.*.trie.blocks.at(self.*.current_block);
         if (node.get_child(prefix)) |child_match_info| {
-            var is_leaf = node.node_is_leaf[@intCast(child_match_info.child_id)];
-            var data = node.data[@intCast(child_match_info.child_id)];
+            var is_leaf = node.node_is_leaf[@intCast(child_match_info.node_id)];
+            var data = node.data[@intCast(child_match_info.node_id)];
 
             if (is_leaf) {
-                return WalkResult{
+                return StepResult{
                     .LeafMatch = .{
-                        .leaf_child_id = child_match_info.child_id,
+                        .node_id = child_match_info.node_id,
+                        .data = data,
                         .chars_used = @intCast(child_match_info.used_chars),
                     },
                 };
             } else {
-                return WalkResult{ .NodeMatch = .{
-                    .node_id = data,
+                return StepResult{ .NodeMatch = .{
+                    .node_id = child_match_info.node_id,
+                    .next_chunk_id = data,
                     .chars_used = @intCast(child_match_info.used_chars),
                 } };
             }
         }
 
-        return WalkResult{
+        return StepResult{
             .NoMatch = void{},
         };
     }
