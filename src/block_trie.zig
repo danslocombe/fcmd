@@ -343,7 +343,6 @@ pub const StepResult = union(enum) {
 pub const TrieWalker = struct {
     trie_view: TrieView,
 
-    chars_within_node: u32 = 0,
     node_id: u8 = 0,
     char_id: usize = 0,
 
@@ -441,141 +440,169 @@ pub const TrieView = struct {
         var node = self.*.trie.blocks.at(self.*.current_block);
         node.insert_prefix_and_sort(self.trie, string, cost);
     }
+
+    pub fn walker(self: TrieView, prefix: []const u8) TrieWalker {
+        return TrieWalker{
+            .trie_view = self,
+            .prefix = prefix,
+        };
+    }
 };
 
 fn test_equal(actual: anytype, expected: @TypeOf(actual)) !void {
     return std.testing.expectEqual(expected, actual);
 }
 
-//test "insert single" {
-//    var strings = [_][]const u8{
-//        "bug",
-//    };
-//
-//    var trie = Trie.init();
-//    var view = trie.to_view();
-//
-//    for (strings) |s| {
-//        try view.insert(s);
-//    }
-//
-//    try test_equal(view.current_block, 0);
-//    var res = view.walk_to("bug");
-//    try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 3 });
-//}
-//
-//test "insert double" {
-//    var strings = [_][]const u8{
-//        "bug", "ben",
-//    };
-//
-//    var trie = Trie.init();
-//    var view = trie.to_view();
-//
-//    for (strings) |s| {
-//        try view.insert(s);
-//    }
-//
-//    view = trie.to_view();
-//    var res = view.walk_to("b");
-//    try test_equal(res.NodeMatch, .{ .node_id = 1, .chars_used = 1 });
-//
-//    view = trie.to_view();
-//    res = view.walk_to("be");
-//    try test_equal(res.LeafMatch, .{ .leaf_child_id = 1, .chars_used = 2 });
-//
-//    view = trie.to_view();
-//    res = view.walk_to("ben");
-//    try test_equal(res.LeafMatch, .{ .leaf_child_id = 1, .chars_used = 3 });
-//
-//    view = trie.to_view();
-//    res = view.walk_to("bu");
-//    try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 2 });
-//
-//    view = trie.to_view();
-//    res = view.walk_to("bug");
-//    try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 3 });
-//}
-//
-//test "insert promoting leaf to node" {
-//    var strings = [_][]const u8{
-//        "bug", "buggin",
-//    };
-//
-//    var trie = Trie.init();
-//    var view = trie.to_view();
-//
-//    for (strings) |s| {
-//        try view.insert(s);
-//    }
-//
-//    view = trie.to_view();
-//    var res = view.walk_to("bug");
-//    try test_equal(res.NodeMatch, .{ .node_id = 1, .chars_used = 3 });
-//
-//    view = trie.to_view();
-//    res = view.walk_to("buggin");
-//    try test_equal(res.LeafMatch, .{ .leaf_child_id = 1, .chars_used = 6 });
-//}
-//
-//test "insert longstring" {
-//    var strings = [_][]const u8{
-//        "longlonglongstring",
-//    };
-//
-//    var trie = Trie.init();
-//    var view = trie.to_view();
-//
-//    for (strings) |s| {
-//        try view.insert(s);
-//    }
-//
-//    view = trie.to_view();
-//    var res = view.walk_to("long");
-//    try test_equal(res.NodeMatch, .{ .node_id = 1, .chars_used = 4 });
-//    try test_equal(view.current_block, 1);
-//
-//    view = trie.to_view();
-//    res = view.walk_to("longlonglongstring");
-//    try test_equal(res.LeafMatch, .{ .leaf_child_id = 0, .chars_used = 18 });
-//    try test_equal(view.current_block, 2);
-//}
-//
-//test "insert splillover" {
-//    var strings = [_][]const u8{
-//        "0a",
-//        "1a",
-//        "2a",
-//        "3a",
-//        "4a",
-//        "5a",
-//        "6a",
-//        "7a",
-//        "aa",
-//        "ba",
-//        "ca",
-//        "da",
-//        "ea",
-//        "fa",
-//        "ga",
-//        "ha",
-//    };
-//
-//    var trie = Trie.init();
-//    var view = trie.to_view();
-//
-//    for (strings) |s| {
-//        try view.insert(s);
-//    }
-//
-//    view = trie.to_view();
-//    var walker = TrieWalker.init(view, "ba");
-//    var res = walker.walk_to("ba");
-//    try test_equal(res, true);
-//    try test_equal(res, true);
-//    //try test_equal(res.LeafMatch, .{ .leaf_child_id = 1, .chars_used = 2 });
-//    //try test_equal(view.current_block, 1);
-//}
+test "insert single" {
+    var strings = [_][]const u8{
+        "bug",
+    };
+
+    var trie = Trie.init();
+    var view = trie.to_view();
+
+    for (strings) |s| {
+        try view.insert(s);
+    }
+
+    try test_equal(view.current_block, 0);
+    var walker = view.walker("bug");
+    try std.testing.expect(walker.walk_to());
+    try test_equal(walker.char_id, 3);
+    try test_equal(walker.node_id, 0);
+}
+
+test "insert double" {
+    var strings = [_][]const u8{
+        "bug", "ben",
+    };
+
+    var trie = Trie.init();
+    var view = trie.to_view();
+
+    for (strings) |s| {
+        try view.insert(s);
+    }
+
+    var walker = view.walker("b");
+    try std.testing.expect(walker.walk_to());
+    try test_equal(walker.trie_view.current_block, 1);
+    try test_equal(walker.char_id, 1);
+    try std.testing.expectEqualSlices(u8, walker.extension.slice(), "");
+
+    walker = view.walker("be");
+    try std.testing.expect(walker.walk_to());
+    try test_equal(walker.trie_view.current_block, 1);
+    try test_equal(walker.char_id, 2);
+    try std.testing.expectEqualSlices(u8, "n", walker.extension.slice());
+
+    walker = view.walker("ben");
+    try std.testing.expect(walker.walk_to());
+    try test_equal(walker.trie_view.current_block, 1);
+    try test_equal(walker.char_id, 3);
+    try std.testing.expectEqualSlices(u8, "", walker.extension.slice());
+
+    walker = view.walker("bu");
+    try std.testing.expect(walker.walk_to());
+    try test_equal(walker.trie_view.current_block, 1);
+    try test_equal(walker.char_id, 2);
+    try std.testing.expectEqualSlices(u8, "g", walker.extension.slice());
+
+    walker = view.walker("bug");
+    try std.testing.expect(walker.walk_to());
+    try test_equal(walker.trie_view.current_block, 1);
+    try test_equal(walker.char_id, 3);
+    try std.testing.expectEqualSlices(u8, "", walker.extension.slice());
+
+    walker = view.walker("ban");
+    try std.testing.expect(!walker.walk_to());
+}
+
+test "insert promoting leaf to node" {
+    var strings = [_][]const u8{
+        "bug", "buggin",
+    };
+
+    var trie = Trie.init();
+    var view = trie.to_view();
+
+    for (strings) |s| {
+        try view.insert(s);
+    }
+
+    var walker = view.walker("bug");
+    try std.testing.expect(walker.walk_to());
+    try test_equal(walker.trie_view.current_block, 1);
+    try test_equal(walker.char_id, 3);
+    try std.testing.expectEqualSlices(u8, walker.extension.slice(), "");
+
+    walker = view.walker("buggin");
+    try std.testing.expect(walker.walk_to());
+    try test_equal(walker.trie_view.current_block, 1);
+    try test_equal(walker.node_id, 1);
+    try test_equal(walker.char_id, 6);
+    try std.testing.expectEqualSlices(u8, walker.extension.slice(), "");
+}
+
+test "insert longstring" {
+    var strings = [_][]const u8{
+        "longlonglongstring",
+    };
+
+    var trie = Trie.init();
+    var view = trie.to_view();
+
+    for (strings) |s| {
+        try view.insert(s);
+    }
+
+    var walker = view.walker("long");
+    try std.testing.expect(walker.walk_to());
+    try test_equal(walker.trie_view.current_block, 1);
+    try test_equal(walker.char_id, 4);
+    try std.testing.expectEqualSlices(u8, walker.extension.slice(), "long");
+
+    walker = view.walker("longlonglongstring");
+    try std.testing.expect(walker.walk_to());
+    try test_equal(walker.trie_view.current_block, 2);
+    try test_equal(walker.node_id, 0);
+    try test_equal(walker.char_id, 18);
+    try std.testing.expectEqualSlices(u8, walker.extension.slice(), "");
+}
+
+test "insert splillover" {
+    var strings = [_][]const u8{
+        "0a",
+        "1a",
+        "2a",
+        "3a",
+        "4a",
+        "5a",
+        "6a",
+        "7a",
+        "aa",
+        "ba",
+        "ca",
+        "da",
+        "ea",
+        "fa",
+        "ga",
+        "ha",
+    };
+
+    var trie = Trie.init();
+    var view = trie.to_view();
+
+    for (strings) |s| {
+        try view.insert(s);
+    }
+
+    var walker = view.walker("ba");
+    try std.testing.expect(walker.walk_to());
+    try test_equal(walker.trie_view.current_block, 1);
+    try test_equal(walker.node_id, 0);
+    try std.testing.expectEqualSlices(u8, walker.extension.slice(), "");
+}
 
 test "iterate spillover" {
     var strings = [_][]const u8{
