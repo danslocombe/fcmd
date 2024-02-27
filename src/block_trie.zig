@@ -59,7 +59,7 @@ pub const SmallStr = struct {
             }
         }
 
-        return 0;
+        return l;
     }
 
     fn copy_to_smallstr(xs: *SmallStr, ys: []const u8) u8 {
@@ -75,6 +75,7 @@ pub const SmallStr = struct {
 
 const TrieBlock = struct {
     const TrieChildCount = 8;
+    const BaseCost = 1000;
 
     len: u32 = 0,
     nodes: [TrieChildCount]SmallStr = alloc.defaulted(SmallStr, TrieChildCount),
@@ -117,7 +118,7 @@ const TrieBlock = struct {
         return null;
     }
 
-    fn insert_prefix(self: *TrieBlock, trie: *Trie, key: []const u8, cost: u16) void {
+    fn insert_prefix(self: *TrieBlock, trie: *Trie, key: []const u8) void {
         const child_size = self.*.get_child_size();
         for (0..@intCast(child_size)) |i| {
             const common_len = self.nodes[i].common_prefix_len(key);
@@ -130,7 +131,7 @@ const TrieBlock = struct {
                     // Exists as a node
                     // Falthrough to recurse
                     recurse_key = key[common_len..];
-                    self.costs[i] = @min(self.costs[i], cost);
+                    self.costs[i] -|= 1;
                 } else {
                     // Split on common prefix
                     var split_first = child_slice[0..common_len];
@@ -146,13 +147,13 @@ const TrieBlock = struct {
                     new_block.*.node_is_leaf[0] = true;
                     new_block.*.data[0] = 0;
                     new_block.*.nodes[0] = split_second_smallstring;
-                    new_block.*.costs[0] = cost;
+                    new_block.*.costs[0] = BaseCost;
 
                     // Update existing node
                     self.node_is_leaf[i] = false;
                     self.data[i] = new_block_id;
                     self.nodes[i] = split_first_smallstring;
-                    self.costs[i] = @min(self.costs[i], cost);
+                    self.costs[i] -|= 1;
 
                     recurse_key = key[common_len..];
                 }
@@ -164,7 +165,7 @@ const TrieBlock = struct {
 
                 var node_id = self.data[i];
                 var node = trie.blocks.at(@intCast(node_id));
-                return node.insert_prefix_and_sort(trie, recurse_key, cost);
+                return node.insert_prefix_and_sort(trie, recurse_key);
             }
         }
 
@@ -184,7 +185,7 @@ const TrieBlock = struct {
 
             // Note we don't call insert_prefix_and_sort here because the sorting run by the caller of this
             // method will already go through all siblings.
-            return next.insert_prefix(trie, key, cost);
+            return next.insert_prefix(trie, key);
         } else {
             // Insert into this node
             var insert_index = child_size;
@@ -195,7 +196,7 @@ const TrieBlock = struct {
                 _ = self.nodes[insert_index].copy_to_smallstr(key);
                 self.node_is_leaf[insert_index] = true;
                 self.data[insert_index] = 0;
-                self.costs[insert_index] = cost;
+                self.costs[insert_index] = BaseCost;
             } else {
                 // Insert multiple
                 self.*.len += 1;
@@ -207,15 +208,15 @@ const TrieBlock = struct {
 
                 self.node_is_leaf[insert_index] = false;
                 self.data[insert_index] = new_node_id;
-                self.costs[insert_index] = cost;
+                self.costs[insert_index] = BaseCost;
 
-                new_node.insert_prefix_and_sort(trie, key[SmallStr.SmallStrLen..], cost);
+                new_node.insert_prefix_and_sort(trie, key[SmallStr.SmallStrLen..]);
             }
         }
     }
 
-    pub fn insert_prefix_and_sort(self: *TrieBlock, trie: *Trie, key: []const u8, cost: u16) void {
-        self.insert_prefix(trie, key, cost);
+    pub fn insert_prefix_and_sort(self: *TrieBlock, trie: *Trie, key: []const u8) void {
+        self.insert_prefix(trie, key);
 
         if (self.get_child_size() < 2) {
             return;
@@ -437,12 +438,7 @@ pub const TrieView = struct {
 
     pub fn insert(self: *TrieView, string: []const u8) !void {
         var node = self.*.trie.blocks.at(self.*.current_block);
-        node.insert_prefix_and_sort(self.trie, string, 0);
-    }
-
-    pub fn insert_cost(self: *TrieView, string: []const u8, cost: u16) !void {
-        var node = self.*.trie.blocks.at(self.*.current_block);
-        node.insert_prefix_and_sort(self.trie, string, cost);
+        node.insert_prefix_and_sort(self.trie, string);
     }
 
     pub fn walker(self: TrieView, prefix: []const u8) TrieWalker {
@@ -632,7 +628,9 @@ test "iterate spillover" {
     var view = trie.to_view();
 
     for (strings, 0..) |s, i| {
-        try view.insert_cost(s, @intCast(strings.len + 1 - i));
+        for (0..i) |_| {
+            try view.insert(s);
+        }
     }
 
     var iter = ChildIterator{

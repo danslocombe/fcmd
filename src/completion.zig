@@ -44,13 +44,7 @@ pub const HistoryCompleter = struct {
 
     pub fn insert(self: *HistoryCompleter, cmd: []const u8) void {
         var view = self.trie.to_view();
-        var cost: u16 = 1000;
-        var walker = view.walker(cmd);
-        if (walker.walk_to()) {
-            cost = walker.cost -| 1;
-        }
-
-        view.insert_cost(cmd, cost) catch unreachable;
+        view.insert(cmd) catch unreachable;
     }
 
     pub fn get_completion(self: *HistoryCompleter, prefix: []const u8) ?[]const u8 {
