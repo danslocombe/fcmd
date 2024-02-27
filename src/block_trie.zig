@@ -144,10 +144,10 @@ const TrieBlock = struct {
                     var new_block_id: u32 = @intCast(trie.blocks.len - 1);
                     var new_block = trie.blocks.at(new_block_id);
                     new_block.*.len = 1;
-                    new_block.*.node_is_leaf[0] = true;
-                    new_block.*.data[0] = 0;
+                    new_block.*.node_is_leaf[0] = self.node_is_leaf[i];
+                    new_block.*.data[0] = self.data[i];
                     new_block.*.nodes[0] = split_second_smallstring;
-                    new_block.*.costs[0] = BaseCost;
+                    new_block.*.costs[0] = self.costs[i];
 
                     // Update existing node
                     self.node_is_leaf[i] = false;
@@ -349,6 +349,8 @@ pub const TrieWalker = struct {
     char_id: usize = 0,
     cost: u16 = 0,
 
+    reached_leaf: bool = false,
+
     prefix: []const u8,
     extension: SmallStr = .{},
 
@@ -361,6 +363,27 @@ pub const TrieWalker = struct {
 
     pub fn walk_trivial(self: *TrieWalker) void {
         _ = self;
+    }
+
+    pub fn walk_to_end(self: *TrieWalker, allocator: std.mem.Allocator) []const u8 {
+        var components = std.ArrayList([]const u8).init(alloc.temp_alloc.allocator());
+        while (true) {
+            var current = self.trie_view.trie.blocks.at(self.trie_view.current_block);
+            if (current.get_child_size() == 0) {
+                break;
+            }
+
+            components.append(current.nodes[self.node_id].slice()) catch unreachable;
+
+            if (current.node_is_leaf[self.node_id]) {
+                break;
+            }
+
+            self.trie_view.current_block = current.data[self.node_id];
+            self.node_id = 0;
+        }
+
+        return std.mem.concat(allocator, u8, components.items) catch unreachable;
     }
 
     pub fn walk_to(self: *TrieWalker) bool {
@@ -383,6 +406,7 @@ pub const TrieWalker = struct {
                     var node = current.nodes[@intCast(x.node_id)];
                     _ = self.extension.copy_to_smallstr(node.slice()[@intCast(x.chars_used)..]);
                     self.cost = current.costs[@intCast(x.node_id)];
+                    self.reached_leaf = true;
                     return true;
                 },
                 .NodeMatch => |x| {

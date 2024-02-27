@@ -51,10 +51,17 @@ pub const HistoryCompleter = struct {
         var view = self.trie.to_view();
         var walker = block_trie.TrieWalker.init(view, prefix);
         if (walker.walk_to()) {
+            // All of this should be cleaned up, walker so ugly atm.
             var extension = walker.extension.slice();
+            var end_extension: []const u8 = "";
+
+            if (!walker.reached_leaf) {
+                end_extension = walker.walk_to_end(alloc.temp_alloc.allocator());
+            }
+
             //var buffer = alloc.gpa_alloc_idk(u8, extension.len);
             //@memcpy(buffer, extension);
-            var buffer = std.fmt.allocPrint(alloc.gpa.allocator(), "{s}  Cost: {d}", .{ extension, walker.cost }) catch unreachable;
+            var buffer = std.fmt.allocPrint(alloc.gpa.allocator(), "{s}{s}  Cost: {d}", .{ extension, end_extension, walker.cost }) catch unreachable;
             return buffer;
         }
 
