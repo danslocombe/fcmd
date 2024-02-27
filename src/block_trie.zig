@@ -600,7 +600,7 @@ test "insert splillover" {
     var walker = view.walker("ba");
     try std.testing.expect(walker.walk_to());
     try test_equal(walker.trie_view.current_block, 1);
-    try test_equal(walker.node_id, 0);
+    try test_equal(walker.node_id, 1);
     try std.testing.expectEqualSlices(u8, walker.extension.slice(), "");
 }
 
@@ -628,7 +628,7 @@ test "iterate spillover" {
     var view = trie.to_view();
 
     for (strings, 0..) |s, i| {
-        for (0..i) |_| {
+        for (0..(i + 1)) |_| {
             try view.insert(s);
         }
     }
@@ -644,7 +644,7 @@ test "iterate spillover" {
         if (i < TrieBlock.TrieChildCount) {
             try test_equal(trie.blocks.at(0), iter.block);
         } else {
-            try test_equal(trie.blocks.at(1), iter.block);
+            try test_equal(trie.blocks.at(trie.blocks.at(0).next), iter.block);
         }
 
         try test_equal(i % TrieBlock.TrieChildCount, iter.i.?);
