@@ -250,6 +250,19 @@ pub const Input = union(enum) {
             };
         }
 
+        if (ci.utf8_char.bs[0] == '\t') {
+            return Input{
+                .PartialComplete = void{},
+            };
+        }
+
+        // Ctrl + R
+        if (ci.utf8_char.bs[0] == '\x06') {
+            return Input{
+                .Complete = void{},
+            };
+        }
+
         // Ctrl + P
         if (ci.utf8_char.bs[0] == '\x10') {
             return Input{

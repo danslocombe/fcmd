@@ -64,6 +64,12 @@ pub const Shell = struct {
                         while (self.current_prompt.move_right()) |_| {}
                     }
                 },
+                .Complete, .PartialComplete => {
+                    if (self.current_completion) |cc| {
+                        self.current_prompt.bs.appendSlice(cc) catch unreachable;
+                        while (self.current_prompt.move_right()) |_| {}
+                    }
+                },
                 else => {
                     // TODO
                 },
@@ -155,6 +161,8 @@ pub const Command = enum {
             .Enter => Command.Run,
             .Up => Command.HistoryBack,
             .Down => Command.HistoryForward,
+            .Complete => Command.Complete,
+            .PartialComplete => Command.PartialComplete,
             else => null,
         };
     }
