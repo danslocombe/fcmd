@@ -53,3 +53,9 @@ pub fn fmt_panic(comptime f: []const u8, xs: anytype) void {
     var s = std.fmt.allocPrint(gpa.allocator(), f, xs) catch unreachable;
     @panic(s);
 }
+
+pub fn copy_slice_to_gpa(s: []const u8) []const u8 {
+    var copy = gpa_alloc_idk(u8, s.len);
+    @memcpy(copy, s);
+    return copy;
+}

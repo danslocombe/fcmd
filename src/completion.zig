@@ -3,17 +3,14 @@ const alloc = @import("alloc.zig");
 
 const block_trie = @import("block_trie.zig");
 
-pub const demo_completions = [_][]const u8{
-    "echo one",
-    "echo two",
-};
-
 pub const CompletionHandler = struct {
     global_history: HistoryCompleter,
+    directory_completer: DirectoryCompleter,
 
     pub fn init() CompletionHandler {
         return .{
             .global_history = HistoryCompleter.init(),
+            .directory_completer = .{},
         };
     }
 
@@ -29,6 +26,91 @@ pub const CompletionHandler = struct {
 
         if (self.global_history.get_completion(prefix)) |completion| {
             return completion;
+        }
+
+        if (self.directory_completer.get_completion(prefix)) |completion| {
+            return completion;
+        }
+
+        return null;
+    }
+};
+
+pub const DirectoryCompleter = struct {
+    rel_dir: ?[]const u8 = null,
+    filenames: ?std.ArrayList([]const u8) = null,
+
+    pub fn regenerate(self: *DirectoryCompleter, rel_dir: []const u8) void {
+        if (self.rel_dir) |rd| {
+            if (std.mem.eql(u8, rel_dir, rd)) {
+                // Nothing to do
+                return;
+            }
+
+            // Start clearing data to prep for regenerate.
+            alloc.gpa.allocator().free(rd);
+            self.rel_dir = null;
+        }
+
+        if (self.filenames) |xs| {
+            xs.deinit();
+            self.filenames = null;
+        }
+
+        self.rel_dir = alloc.copy_slice_to_gpa(rel_dir);
+
+        //std.debug.print("Regenerating DirectoryCompleter at '{s}'...\n", .{rel_dir});
+
+        // TODO handle full paths
+        var cwd = std.fs.cwd();
+        var dir: std.fs.IterableDir = undefined;
+        if (cwd.openIterableDir(rel_dir, .{})) |rdir| {
+            dir = rdir;
+        } else |_| {
+            return;
+        }
+        self.filenames = alloc.new_arraylist([]const u8);
+
+        var iter = dir.iterate();
+        while (iter.next()) |m_file| {
+            if (m_file) |file| {
+                //std.debug.print("Found '{s}'\n", .{file.name});
+                self.filenames.?.append(alloc.copy_slice_to_gpa(file.name)) catch unreachable;
+            } else {
+                break;
+            }
+        } else |_| {
+            return;
+        }
+    }
+
+    pub fn get_completion(self: *DirectoryCompleter, prefix: []const u8) ?[]const u8 {
+        // TODO drop all but final word
+        var last_word = prefix;
+
+        var words_iter = std.mem.tokenizeAny(u8, prefix, " ");
+        while (words_iter.next()) |word| {
+            last_word = word;
+        }
+
+        var prefix_for_query = last_word;
+
+        var count = std.mem.count(u8, last_word, "/") + std.mem.count(u8, last_word, "\\");
+        if (count == 0) {
+            self.regenerate("");
+        } else {
+            var path_index = std.mem.lastIndexOfAny(u8, last_word, "/\\").?;
+            var path = last_word[0..path_index];
+            prefix_for_query = last_word[path_index + 1 ..];
+            self.regenerate(path);
+        }
+
+        if (self.filenames) |xs| {
+            for (xs.items) |x| {
+                if (std.mem.startsWith(u8, x, prefix_for_query)) {
+                    return alloc.copy_slice_to_gpa(x[prefix_for_query.len..]);
+                }
+            }
         }
 
         return null;
