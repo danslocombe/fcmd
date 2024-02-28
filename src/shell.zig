@@ -12,13 +12,13 @@ pub const Shell = struct {
     completion_handler: CompletionHandler,
     current_completion: ?[]const u8 = null,
 
-    pub fn init() Shell {
+    pub fn init(storage_allocator: std.mem.Allocator) Shell {
         return .{
             .current_prompt = Zipper.init(),
             .history = .{
                 .buffer = ring_buffer.RingBuffer([]const u8).init(256, ""),
             },
-            .completion_handler = CompletionHandler.init(),
+            .completion_handler = CompletionHandler.init(storage_allocator),
         };
     }
 

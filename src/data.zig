@@ -11,11 +11,15 @@ const SECTION_EXTEND_SIZE = @as(c_int, 0x0010);
 const SECTION_MAP_EXECUTE_EXPLICIT = @as(c_int, 0x0020);
 const FILE_MAP_ALL_ACCESS = ((((STANDARD_RIGHTS_REQUIRED | SECTION_QUERY) | SECTION_MAP_WRITE) | SECTION_MAP_READ) | SECTION_MAP_EXECUTE) | SECTION_EXTEND_SIZE;
 
+const magic_number = [_]u8{ 'f', 'r', 'o', 'g' };
+const current_version: u8 = 1;
+
 pub const BackingData = struct {
     file_handle: *anyopaque,
     map_pointer: *anyopaque,
     map_view_pointer: *anyopaque,
     map: []u8,
+    allocator: *std.heap.FixedBufferAllocator,
 
     pub fn init() BackingData {
         const path = "v0.fcmd_data";
@@ -46,13 +50,39 @@ pub const BackingData = struct {
         //var map = .{ .ptr = @as(*u8, @ptrCast(map_view.?)), .len = size };
         var map = @as([*]u8, @ptrCast(map_view.?))[0..size];
 
-        map[0] = 0x01;
+        var map_magic_number = map[0..4];
+        var version = &map[4];
+        var map_alloc: *std.heap.FixedBufferAllocator = @ptrCast(@alignCast(map.ptr + 8));
+
+        if (std.mem.allEqual(u8, map_magic_number, 0)) {
+            // Empty, assume new file
+            @memcpy(map_magic_number, &magic_number);
+            version.* = current_version;
+            map_alloc.end_index = 0;
+        } else if (std.mem.eql(u8, map_magic_number, &magic_number)) {
+            if (version.* == current_version) {
+                // All good
+            } else {
+                alloc.fmt_panic("Unexpected version '{}' expected {}", .{ version.*, current_version });
+            }
+        } else {
+            alloc.fmt_panic("Unexpected magic number on file {s} '{s}'", .{ path, map_magic_number });
+        }
+
+        const alloc_len = @sizeOf(std.heap.FixedBufferAllocator);
+        var usable_map = map[8 + alloc_len ..];
+
+        // As we are loading into virtual memory this will be at a differnt place every time.
+        // Update the map pointer
+        // TODO when we have concurrency this won't work.
+        map_alloc.buffer = usable_map;
 
         return .{
             .file_handle = file_handle.?,
             .map_pointer = map_handle.?,
             .map_view_pointer = map_view.?,
-            .map = map,
+            .map = usable_map,
+            .allocator = map_alloc,
         };
     }
 };

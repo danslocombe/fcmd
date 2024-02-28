@@ -33,10 +33,8 @@ pub fn main() !void {
 
     write_console("FroggyCMD 🐸!\n");
 
-    var shell = shell_lib.Shell.init();
-
     var backing = data.BackingData.init();
-    _ = backing;
+    var shell = shell_lib.Shell.init(backing.allocator.allocator());
 
     var buffer: [64]console_input.Input = undefined;
     var inputs_produced: usize = 0;

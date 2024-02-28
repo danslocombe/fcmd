@@ -140,7 +140,7 @@ const TrieBlock = struct {
                     var split_second_smallstring = SmallStr.from_slice(split_second);
 
                     // Create new block to hold children
-                    trie.blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
+                    trie.blocks.append(trie.allocator, TrieBlock.empty()) catch unreachable;
                     var new_block_id: u32 = @intCast(trie.blocks.len - 1);
                     var new_block = trie.blocks.at(new_block_id);
                     new_block.*.len = 1;
@@ -176,7 +176,7 @@ const TrieBlock = struct {
             //
             // No sibling, need to insert one
             if (self.next == 0) {
-                trie.blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
+                trie.blocks.append(trie.allocator, TrieBlock.empty()) catch unreachable;
                 var new_node_id: u32 = @intCast(trie.blocks.len - 1);
                 self.next = @intCast(new_node_id);
             }
@@ -202,7 +202,7 @@ const TrieBlock = struct {
                 self.*.len += 1;
                 _ = self.nodes[insert_index].copy_to_smallstr(key[0..SmallStr.SmallStrLen]);
 
-                trie.blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
+                trie.blocks.append(trie.allocator, TrieBlock.empty()) catch unreachable;
                 var new_node_id: u32 = @intCast(trie.blocks.len - 1);
                 var new_node = trie.blocks.at(new_node_id);
 
@@ -310,6 +310,7 @@ pub const ChildIterator = struct {
 
 pub const Trie = struct {
     blocks: std.SegmentedList(TrieBlock, 0),
+    allocator: std.mem.Allocator,
 
     const root = 0;
     //tails : std.ArrayList([] const u8),
@@ -321,12 +322,16 @@ pub const Trie = struct {
         };
     }
 
-    pub fn init() Trie {
+    pub fn init(allocator: std.mem.Allocator) Trie {
         var blocks = std.SegmentedList(TrieBlock, 0){};
-        blocks.append(alloc.gpa.allocator(), TrieBlock.empty()) catch unreachable;
+
+        // @HACK!
+        //var fba : *std.heap.FixedBufferAllocator = @ptrCast(allocator.ptr);
+        blocks.append(allocator, TrieBlock.empty()) catch unreachable;
 
         return Trie{
             .blocks = blocks,
+            .allocator = allocator,
         };
     }
 };

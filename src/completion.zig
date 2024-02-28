@@ -7,9 +7,9 @@ pub const CompletionHandler = struct {
     global_history: HistoryCompleter,
     directory_completer: DirectoryCompleter,
 
-    pub fn init() CompletionHandler {
+    pub fn init(storage_allocator: std.mem.Allocator) CompletionHandler {
         return .{
-            .global_history = HistoryCompleter.init(),
+            .global_history = HistoryCompleter.init(storage_allocator),
             .directory_completer = .{},
         };
     }
@@ -120,8 +120,8 @@ pub const DirectoryCompleter = struct {
 pub const HistoryCompleter = struct {
     trie: block_trie.Trie,
 
-    pub fn init() HistoryCompleter {
-        return .{ .trie = block_trie.Trie.init() };
+    pub fn init(allocator: std.mem.Allocator) HistoryCompleter {
+        return .{ .trie = block_trie.Trie.init(allocator) };
     }
 
     pub fn insert(self: *HistoryCompleter, cmd: []const u8) void {
