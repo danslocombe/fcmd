@@ -249,7 +249,8 @@ const TrieBlock = struct {
                 var cost_0 = iter_0.block.costs[iter_0.i.?];
                 var cost_1 = iter_1.block.costs[iter_1.i.?];
 
-                if (cost_0 > cost_1) {
+                // Use >= instead of > to prefer recent insertions
+                if (cost_0 >= cost_1) {
                     swapped = true;
 
                     var tmp_cost = iter_0.block.costs[iter_0.i.?];
