@@ -1,6 +1,7 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
 const windows = @import("windows.zig");
+const block_trie = @import("block_trie.zig");
 
 const STANDARD_RIGHTS_REQUIRED = 0x000F0000;
 const SECTION_QUERY = @as(c_int, 0x0001);
@@ -19,7 +20,10 @@ pub const BackingData = struct {
     map_pointer: *anyopaque,
     map_view_pointer: *anyopaque,
     map: []u8,
-    allocator: *std.heap.FixedBufferAllocator,
+
+    trie_blocks: DumbList(block_trie.TrieBlock),
+
+    //allocator: MMFBackedFixedAllocator,
 
     pub fn init() BackingData {
         const path = "v0.fcmd_data";
@@ -52,13 +56,22 @@ pub const BackingData = struct {
 
         var map_magic_number = map[0..4];
         var version = &map[4];
-        var map_alloc: *std.heap.FixedBufferAllocator = @ptrCast(@alignCast(map.ptr + 8));
+        //var map_alloc: MMFBackedFixedAllocator = undefined;
+        //map_alloc.end_index_ptr = @ptrCast(@alignCast(map.ptr + 8));
+        //map_alloc.map = map[8 + @sizeOf(usize) ..];
+
+        var trie_blocks: DumbList(block_trie.TrieBlock) = undefined;
+        trie_blocks.len = @ptrCast(@alignCast(map.ptr + 8));
+        const start = 8 + @sizeOf(usize);
+        var end = @divFloor(map.len - start, @sizeOf(block_trie.TrieBlock)) * @sizeOf(block_trie.TrieBlock);
+        var trieblock_bytes = map[start .. start + end];
+        trie_blocks.map = @alignCast(std.mem.bytesAsSlice(block_trie.TrieBlock, trieblock_bytes));
 
         if (std.mem.allEqual(u8, map_magic_number, 0)) {
             // Empty, assume new file
             @memcpy(map_magic_number, &magic_number);
             version.* = current_version;
-            map_alloc.end_index = 0;
+            //map_alloc.end_index_ptr.* = 0;
         } else if (std.mem.eql(u8, map_magic_number, &magic_number)) {
             if (version.* == current_version) {
                 // All good
@@ -69,20 +82,97 @@ pub const BackingData = struct {
             alloc.fmt_panic("Unexpected magic number on file {s} '{s}'", .{ path, map_magic_number });
         }
 
-        const alloc_len = @sizeOf(std.heap.FixedBufferAllocator);
-        var usable_map = map[8 + alloc_len ..];
-
-        // As we are loading into virtual memory this will be at a differnt place every time.
-        // Update the map pointer
-        // TODO when we have concurrency this won't work.
-        map_alloc.buffer = usable_map;
-
         return .{
             .file_handle = file_handle.?,
             .map_pointer = map_handle.?,
             .map_view_pointer = map_view.?,
-            .map = usable_map,
-            .allocator = map_alloc,
+            .map = map,
+            //.allocator = map_alloc,
+            .trie_blocks = trie_blocks,
         };
     }
 };
+
+// For now we just do the dumbest thing
+pub const MMFBackedFixedAllocator = struct {
+    end_index_ptr: *usize,
+    map: []u8,
+
+    pub fn allocator(self: *MMFBackedFixedAllocator) std.mem.Allocator {
+        return .{
+            .ptr = self,
+            .vtable = &.{
+                .alloc = MMFBackedFixedAllocator.alloc,
+                .resize = resize,
+                .free = free,
+            },
+        };
+    }
+
+    fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
+        //Copypasted from std.mem.FixedBufferAllocator
+        const self: *MMFBackedFixedAllocator = @ptrCast(@alignCast(ctx));
+        _ = ra;
+        const ptr_align = @as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intCast(log2_ptr_align));
+        //var buffer = self.get_buffer();
+        //var end_index_ptr = self.get_end_index_ptr();
+        var buffer = self.map;
+        var end_index_ptr = self.end_index_ptr;
+        const adjust_off = std.mem.alignPointerOffset(buffer.ptr + end_index_ptr.*, ptr_align) orelse return null;
+        const adjusted_index = end_index_ptr.* + adjust_off;
+        const new_end_index = adjusted_index + n;
+        if (new_end_index > buffer.len) return null;
+        end_index_ptr.* = new_end_index;
+        return buffer.ptr + adjusted_index;
+    }
+
+    fn resize(
+        ctx: *anyopaque,
+        buf: []u8,
+        log2_buf_align: u8,
+        new_size: usize,
+        return_address: usize,
+    ) bool {
+        _ = return_address;
+        _ = new_size;
+        _ = log2_buf_align;
+        _ = buf;
+        _ = ctx;
+        @panic("unimplemented");
+    }
+
+    fn free(
+        ctx: *anyopaque,
+        buf: []u8,
+        log2_buf_align: u8,
+        return_address: usize,
+    ) void {
+        _ = return_address;
+        _ = log2_buf_align;
+        _ = buf;
+        _ = ctx;
+
+        // Do nothing
+        // We could do something if the alloc passed is the last alloc
+        // But we don't
+    }
+};
+
+pub fn DumbList(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        len: *usize,
+        map: []T,
+
+        pub fn append(self: *const Self, x: T) void {
+            self.map[self.len.*] = x;
+            self.len.* += 1;
+        }
+
+        pub fn at(self: *const Self, i: usize) *T {
+            std.debug.assert(i < self.len.*);
+            return &self.map[i];
+        }
+    };
+}

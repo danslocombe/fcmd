@@ -1,5 +1,6 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
+const data_lib = @import("data.zig");
 
 pub const SmallStr = struct {
     pub const SmallStrLen = 8;
@@ -73,7 +74,7 @@ pub const SmallStr = struct {
     }
 };
 
-const TrieBlock = struct {
+pub const TrieBlock = struct {
     const TrieChildCount = 8;
     const BaseCost = 1000;
 
@@ -140,8 +141,8 @@ const TrieBlock = struct {
                     var split_second_smallstring = SmallStr.from_slice(split_second);
 
                     // Create new block to hold children
-                    trie.blocks.append(trie.allocator, TrieBlock.empty()) catch unreachable;
-                    var new_block_id: u32 = @intCast(trie.blocks.len - 1);
+                    trie.blocks.append(TrieBlock.empty());
+                    var new_block_id: u32 = @intCast(trie.blocks.len.* - 1);
                     var new_block = trie.blocks.at(new_block_id);
                     new_block.*.len = 1;
                     new_block.*.node_is_leaf[0] = self.node_is_leaf[i];
@@ -176,8 +177,8 @@ const TrieBlock = struct {
             //
             // No sibling, need to insert one
             if (self.next == 0) {
-                trie.blocks.append(trie.allocator, TrieBlock.empty()) catch unreachable;
-                var new_node_id: u32 = @intCast(trie.blocks.len - 1);
+                trie.blocks.append(TrieBlock.empty());
+                var new_node_id: u32 = @intCast(trie.blocks.len.* - 1);
                 self.next = @intCast(new_node_id);
             }
 
@@ -202,8 +203,8 @@ const TrieBlock = struct {
                 self.*.len += 1;
                 _ = self.nodes[insert_index].copy_to_smallstr(key[0..SmallStr.SmallStrLen]);
 
-                trie.blocks.append(trie.allocator, TrieBlock.empty()) catch unreachable;
-                var new_node_id: u32 = @intCast(trie.blocks.len - 1);
+                trie.blocks.append(TrieBlock.empty());
+                var new_node_id: u32 = @intCast(trie.blocks.len.* - 1);
                 var new_node = trie.blocks.at(new_node_id);
 
                 self.node_is_leaf[insert_index] = false;
@@ -309,8 +310,7 @@ pub const ChildIterator = struct {
 };
 
 pub const Trie = struct {
-    blocks: std.SegmentedList(TrieBlock, 0),
-    allocator: std.mem.Allocator,
+    blocks: data_lib.DumbList(TrieBlock),
 
     const root = 0;
     //tails : std.ArrayList([] const u8),
@@ -322,16 +322,13 @@ pub const Trie = struct {
         };
     }
 
-    pub fn init(allocator: std.mem.Allocator) Trie {
-        var blocks = std.SegmentedList(TrieBlock, 0){};
-
-        // @HACK!
-        //var fba : *std.heap.FixedBufferAllocator = @ptrCast(allocator.ptr);
-        blocks.append(allocator, TrieBlock.empty()) catch unreachable;
+    pub fn init(trie_blocks: data_lib.DumbList(TrieBlock)) Trie {
+        if (trie_blocks.len.* == 0) {
+            trie_blocks.append(TrieBlock.empty());
+        }
 
         return Trie{
-            .blocks = blocks,
-            .allocator = allocator,
+            .blocks = trie_blocks,
         };
     }
 };
@@ -467,7 +464,7 @@ pub const TrieView = struct {
     }
 
     pub fn insert(self: *TrieView, string: []const u8) !void {
-        var node = self.*.trie.blocks.at(self.*.current_block);
+        var node = self.trie.blocks.at(@intCast(self.*.current_block));
         node.insert_prefix_and_sort(self.trie, string);
     }
 

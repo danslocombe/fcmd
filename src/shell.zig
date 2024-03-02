@@ -5,6 +5,8 @@ const Zipper = @import("zipper.zig").Zipper;
 const run = @import("run.zig");
 const ring_buffer = @import("ring_buffer.zig");
 const CompletionHandler = @import("completion.zig").CompletionHandler;
+const data = @import("data.zig");
+const block_trie = @import("block_trie.zig");
 
 pub const Shell = struct {
     current_prompt: Zipper,
@@ -12,13 +14,13 @@ pub const Shell = struct {
     completion_handler: CompletionHandler,
     current_completion: ?[]const u8 = null,
 
-    pub fn init(storage_allocator: std.mem.Allocator) Shell {
+    pub fn init(trie_blocks: data.DumbList(block_trie.TrieBlock)) Shell {
         return .{
             .current_prompt = Zipper.init(),
             .history = .{
                 .buffer = ring_buffer.RingBuffer([]const u8).init(256, ""),
             },
-            .completion_handler = CompletionHandler.init(storage_allocator),
+            .completion_handler = CompletionHandler.init(trie_blocks),
         };
     }
 

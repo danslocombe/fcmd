@@ -1,5 +1,6 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
+const data = @import("data.zig");
 
 const block_trie = @import("block_trie.zig");
 
@@ -7,9 +8,9 @@ pub const CompletionHandler = struct {
     global_history: HistoryCompleter,
     directory_completer: DirectoryCompleter,
 
-    pub fn init(storage_allocator: std.mem.Allocator) CompletionHandler {
+    pub fn init(trie_blocks: data.DumbList(block_trie.TrieBlock)) CompletionHandler {
         return .{
-            .global_history = HistoryCompleter.init(storage_allocator),
+            .global_history = HistoryCompleter.init(trie_blocks),
             .directory_completer = .{},
         };
     }
@@ -120,8 +121,8 @@ pub const DirectoryCompleter = struct {
 pub const HistoryCompleter = struct {
     trie: block_trie.Trie,
 
-    pub fn init(allocator: std.mem.Allocator) HistoryCompleter {
-        return .{ .trie = block_trie.Trie.init(allocator) };
+    pub fn init(trie_blocks: data.DumbList(block_trie.TrieBlock)) HistoryCompleter {
+        return .{ .trie = block_trie.Trie.init(trie_blocks) };
     }
 
     pub fn insert(self: *HistoryCompleter, cmd: []const u8) void {
