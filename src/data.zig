@@ -63,11 +63,13 @@ pub const BackingData = struct {
         var trie_blocks: DumbList(block_trie.TrieBlock) = undefined;
         trie_blocks.len = @ptrCast(@alignCast(map.ptr + 8));
         const start = 8 + @sizeOf(usize);
-        var end = @divFloor(map.len - start, @sizeOf(block_trie.TrieBlock)) * @sizeOf(block_trie.TrieBlock);
+        var trie_block_count = @divFloor(map.len - start, @sizeOf(block_trie.TrieBlock));
+        var end = trie_block_count * @sizeOf(block_trie.TrieBlock);
         var trieblock_bytes = map[start .. start + end];
         trie_blocks.map = @alignCast(std.mem.bytesAsSlice(block_trie.TrieBlock, trieblock_bytes));
 
         if (std.mem.allEqual(u8, map_magic_number, 0)) {
+            std.debug.print("Resetting state...\n", .{});
             // Empty, assume new file
             @memcpy(map_magic_number, &magic_number);
             version.* = current_version;
@@ -75,6 +77,7 @@ pub const BackingData = struct {
         } else if (std.mem.eql(u8, map_magic_number, &magic_number)) {
             if (version.* == current_version) {
                 // All good
+                std.debug.print("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, trie_blocks.len.* });
             } else {
                 alloc.fmt_panic("Unexpected version '{}' expected {}", .{ version.*, current_version });
             }
