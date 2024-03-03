@@ -5,17 +5,21 @@ const data = @import("data.zig");
 const block_trie = @import("block_trie.zig");
 
 pub const CompletionHandler = struct {
-    global_history: HistoryCompleter,
+    local_history: LocalHistoryCompleter,
+    global_history: GlobalHistoryCompleter,
     directory_completer: DirectoryCompleter,
 
     pub fn init(trie_blocks: data.DumbList(block_trie.TrieBlock)) CompletionHandler {
+        var base = HistoryCompleter.init(trie_blocks);
         return .{
-            .global_history = HistoryCompleter.init(trie_blocks),
+            .global_history = .{ .completer = base },
+            .local_history = .{ .completer = base },
             .directory_completer = .{},
         };
     }
 
     pub fn update(self: *CompletionHandler, cmd: []const u8) void {
+        self.local_history.insert(cmd);
         self.global_history.insert(cmd);
     }
 
@@ -23,6 +27,10 @@ pub const CompletionHandler = struct {
         // No completions for empty prefix.
         if (prefix.len == 0) {
             return null;
+        }
+
+        if (self.local_history.get_completion(prefix)) |completion| {
+            return completion;
         }
 
         if (self.global_history.get_completion(prefix)) |completion| {
@@ -115,6 +123,42 @@ pub const DirectoryCompleter = struct {
         }
 
         return null;
+    }
+};
+
+pub const LocalHistoryCompleter = struct {
+    cwd_path: ?[]const u8 = null,
+    completer: HistoryCompleter,
+
+    pub fn add_prefix(self: *LocalHistoryCompleter, s: []const u8) []const u8 {
+        if (self.cwd_path == null) {
+            var cwd = std.fs.cwd();
+            self.cwd_path = cwd.realpathAlloc(alloc.gpa.allocator(), "") catch unreachable;
+        }
+
+        return std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ self.cwd_path.?, "|", s }) catch unreachable;
+    }
+
+    pub fn insert(self: *LocalHistoryCompleter, cmd: []const u8) void {
+        self.completer.insert(self.add_prefix(cmd));
+    }
+
+    pub fn get_completion(self: *LocalHistoryCompleter, prefix: []const u8) ?[]const u8 {
+        return self.completer.get_completion(self.add_prefix(prefix));
+    }
+};
+
+pub const GlobalHistoryCompleter = struct {
+    completer: HistoryCompleter,
+
+    pub fn insert(self: *GlobalHistoryCompleter, cmd: []const u8) void {
+        var with_prefix = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ @as([]const u8, "GLOBAL_"), cmd }) catch unreachable;
+        self.completer.insert(with_prefix);
+    }
+
+    pub fn get_completion(self: *GlobalHistoryCompleter, prefix: []const u8) ?[]const u8 {
+        var with_prefix = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ @as([]const u8, "GLOBAL_"), prefix }) catch unreachable;
+        return self.completer.get_completion(with_prefix);
     }
 };
 

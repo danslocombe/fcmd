@@ -5,8 +5,8 @@ const Zipper = @import("zipper.zig").Zipper;
 const run = @import("run.zig");
 const ring_buffer = @import("ring_buffer.zig");
 const CompletionHandler = @import("completion.zig").CompletionHandler;
-const data = @import("data.zig");
 const block_trie = @import("block_trie.zig");
+const data = @import("data.zig");
 
 pub const Shell = struct {
     current_prompt: Zipper,
@@ -42,6 +42,10 @@ pub const Shell = struct {
 
                     self.history.push(cmd);
                     self.completion_handler.update(cmd);
+                    if (self.completion_handler.local_history.cwd_path) |cwd| {
+                        alloc.gpa.allocator().free(cwd);
+                    }
+                    self.completion_handler.local_history.cwd_path = null;
                     self.current_prompt.clear();
                 },
                 .HistoryBack => {

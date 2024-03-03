@@ -348,7 +348,6 @@ pub const StepResult = union(enum) {
 pub const TrieWalker = struct {
     trie_view: TrieView,
 
-    node_id: u8 = 0,
     char_id: usize = 0,
     cost: u16 = 0,
 
@@ -376,14 +375,13 @@ pub const TrieWalker = struct {
                 break;
             }
 
-            components.append(current.nodes[self.node_id].slice()) catch unreachable;
+            components.append(current.nodes[0].slice()) catch unreachable;
 
-            if (current.node_is_leaf[self.node_id]) {
+            if (current.node_is_leaf[0]) {
                 break;
             }
 
-            self.trie_view.current_block = current.data[self.node_id];
-            self.node_id = 0;
+            self.trie_view.current_block = current.data[0];
         }
 
         return std.mem.concat(allocator, u8, components.items) catch unreachable;
@@ -405,7 +403,6 @@ pub const TrieWalker = struct {
                 },
                 .LeafMatch => |x| {
                     self.char_id += @intCast(x.chars_used);
-                    self.node_id = x.node_id;
                     var node = current.nodes[@intCast(x.node_id)];
                     _ = self.extension.copy_to_smallstr(node.slice()[@intCast(x.chars_used)..]);
                     self.cost = current.costs[@intCast(x.node_id)];
@@ -414,7 +411,6 @@ pub const TrieWalker = struct {
                 },
                 .NodeMatch => |x| {
                     self.char_id += @intCast(x.chars_used);
-                    self.node_id = x.node_id;
                     var node = current.nodes[@intCast(x.node_id)];
                     _ = self.extension.copy_to_smallstr(node.slice()[@intCast(x.chars_used)..]);
                     self.cost = current.costs[@intCast(x.node_id)];
