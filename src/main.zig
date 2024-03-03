@@ -61,7 +61,7 @@ pub fn draw(shell: *shell_lib.Shell) void {
 
     var completion_command: []const u8 = "";
     if (shell.current_completion) |completion| {
-        completion_command = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[1m\x1b[31m{s}\x1b[0m", .{completion}) catch unreachable;
+        completion_command = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[1m\x1b[35m{s}\x1b[0m", .{completion}) catch unreachable;
     }
 
     // TODO handle setting cursor y pos.

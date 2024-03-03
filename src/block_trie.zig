@@ -2,84 +2,87 @@ const std = @import("std");
 const alloc = @import("alloc.zig");
 const data_lib = @import("data.zig");
 
-pub const SmallStr = struct {
-    pub const SmallStrLen = 8;
+pub const SmallStrLen = 8;
 
-    data: [SmallStrLen]u8 = alloc.zeroed(u8, SmallStrLen),
+pub fn InlineString(comptime N: usize) type {
+    return struct {
+        const Self = @This();
+        data: [N]u8 = alloc.zeroed(u8, N),
 
-    pub fn from_slice(xs: []const u8) SmallStr {
-        std.debug.assert(xs.len <= SmallStrLen);
-        var small_str = SmallStr{};
-        _ = copy_to_smallstr(&small_str, xs);
-        return small_str;
-    }
-
-    pub fn slice(self: *SmallStr) []const u8 {
-        return self.data[0..self.len()];
-    }
-
-    pub fn len(self: SmallStr) u8 {
-        var length: usize = 0;
-        while (length < SmallStrLen) : (length += 1) {
-            if (self.data[length] == 0) {
-                return @intCast(length);
-            }
+        pub fn from_slice(xs: []const u8) Self {
+            std.debug.assert(xs.len <= N);
+            var small_str = Self{};
+            _ = copy_to_smallstr(&small_str, xs);
+            return small_str;
         }
 
-        return SmallStrLen;
-    }
-
-    fn matches(xs: SmallStr, key: []const u8) bool {
-        const l = @min(SmallStr.SmallStrLen, key.len);
-        var i: u8 = 0;
-        while (i < l) : (i += 1) {
-            if (xs.data[i] == 0) {
-                // xs ended
-                return true;
-            }
-
-            if (xs.data[i] != key[i]) {
-                return false;
-            }
+        pub fn slice(self: *Self) []const u8 {
+            return self.data[0..self.len()];
         }
 
-        return true;
-    }
-
-    fn common_prefix_len(xs: SmallStr, ys: []const u8) u8 {
-        const l = @min(SmallStr.SmallStrLen, ys.len);
-        var i: u8 = 0;
-        while (i < l) : (i += 1) {
-            if (xs.data[i] == 0) {
-                // xs ended
-                return i;
+        pub fn len(self: Self) u8 {
+            var length: usize = 0;
+            while (length < N) : (length += 1) {
+                if (self.data[length] == 0) {
+                    return @intCast(length);
+                }
             }
 
-            if (xs.data[i] != ys[i]) {
-                return i;
+            return N;
+        }
+
+        fn matches(xs: Self, key: []const u8) bool {
+            const l = @min(N, key.len);
+            var i: u8 = 0;
+            while (i < l) : (i += 1) {
+                if (xs.data[i] == 0) {
+                    // xs ended
+                    return true;
+                }
+
+                if (xs.data[i] != key[i]) {
+                    return false;
+                }
             }
+
+            return true;
         }
 
-        return l;
-    }
+        fn common_prefix_len(xs: Self, ys: []const u8) u8 {
+            const l = @min(N, ys.len);
+            var i: u8 = 0;
+            while (i < l) : (i += 1) {
+                if (xs.data[i] == 0) {
+                    // xs ended
+                    return i;
+                }
 
-    fn copy_to_smallstr(xs: *SmallStr, ys: []const u8) u8 {
-        const l = @min(SmallStr.SmallStrLen, ys.len);
-        var i: u8 = 0;
-        while (i < l) : (i += 1) {
-            xs.data[i] = ys[i];
+                if (xs.data[i] != ys[i]) {
+                    return i;
+                }
+            }
+
+            return l;
         }
 
-        return @as(u8, @intCast(l));
-    }
-};
+        fn copy_to_smallstr(xs: *Self, ys: []const u8) u8 {
+            const l = @min(N, ys.len);
+            var i: u8 = 0;
+            while (i < l) : (i += 1) {
+                xs.data[i] = ys[i];
+            }
+
+            return @as(u8, @intCast(l));
+        }
+    };
+}
 
 pub const TrieBlock = struct {
     const TrieChildCount = 8;
     const BaseCost = 1000;
 
     len: u32 = 0,
-    nodes: [TrieChildCount]SmallStr = alloc.defaulted(SmallStr, TrieChildCount),
+    nodes: [TrieChildCount]InlineString(SmallStrLen) = alloc.defaulted(InlineString(SmallStrLen), TrieChildCount),
     data: [TrieChildCount]u32 = alloc.zeroed(u32, TrieChildCount),
     costs: [TrieChildCount]u16 = alloc.zeroed(u16, TrieChildCount),
     node_is_leaf: [TrieChildCount]bool = alloc.trued(TrieChildCount),
@@ -136,9 +139,9 @@ pub const TrieBlock = struct {
                 } else {
                     // Split on common prefix
                     var split_first = child_slice[0..common_len];
-                    var split_first_smallstring = SmallStr.from_slice(split_first);
+                    var split_first_smallstring = InlineString(SmallStrLen).from_slice(split_first);
                     var split_second = child_slice[common_len..];
-                    var split_second_smallstring = SmallStr.from_slice(split_second);
+                    var split_second_smallstring = InlineString(SmallStrLen).from_slice(split_second);
 
                     // Create new block to hold children
                     trie.blocks.append(TrieBlock.empty());
@@ -191,7 +194,7 @@ pub const TrieBlock = struct {
             // Insert into this node
             var insert_index = child_size;
 
-            if (key.len < SmallStr.SmallStrLen) {
+            if (key.len < SmallStrLen) {
                 // Insert single
                 self.*.len += 1;
                 _ = self.nodes[insert_index].copy_to_smallstr(key);
@@ -201,7 +204,7 @@ pub const TrieBlock = struct {
             } else {
                 // Insert multiple
                 self.*.len += 1;
-                _ = self.nodes[insert_index].copy_to_smallstr(key[0..SmallStr.SmallStrLen]);
+                _ = self.nodes[insert_index].copy_to_smallstr(key[0..SmallStrLen]);
 
                 trie.blocks.append(TrieBlock.empty());
                 var new_node_id: u32 = @intCast(trie.blocks.len.* - 1);
@@ -211,7 +214,7 @@ pub const TrieBlock = struct {
                 self.data[insert_index] = new_node_id;
                 self.costs[insert_index] = BaseCost;
 
-                new_node.insert_prefix_and_sort(trie, key[SmallStr.SmallStrLen..]);
+                new_node.insert_prefix_and_sort(trie, key[SmallStrLen..]);
             }
         }
     }
@@ -354,7 +357,7 @@ pub const TrieWalker = struct {
     reached_leaf: bool = false,
 
     prefix: []const u8,
-    extension: SmallStr = .{},
+    extension: InlineString(SmallStrLen) = .{},
 
     pub fn init(view: TrieView, prefix: []const u8) TrieWalker {
         return TrieWalker{
