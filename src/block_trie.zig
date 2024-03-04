@@ -1,81 +1,9 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
 const data_lib = @import("data.zig");
+const InlineString = @import("inline_string.zig").InlineString;
 
 pub const SmallStrLen = 8;
-
-pub fn InlineString(comptime N: usize) type {
-    return struct {
-        const Self = @This();
-        data: [N]u8 = alloc.zeroed(u8, N),
-
-        pub fn from_slice(xs: []const u8) Self {
-            std.debug.assert(xs.len <= N);
-            var small_str = Self{};
-            _ = copy_to_smallstr(&small_str, xs);
-            return small_str;
-        }
-
-        pub fn slice(self: *Self) []const u8 {
-            return self.data[0..self.len()];
-        }
-
-        pub fn len(self: Self) u8 {
-            var length: usize = 0;
-            while (length < N) : (length += 1) {
-                if (self.data[length] == 0) {
-                    return @intCast(length);
-                }
-            }
-
-            return N;
-        }
-
-        fn matches(xs: Self, key: []const u8) bool {
-            const l = @min(N, key.len);
-            var i: u8 = 0;
-            while (i < l) : (i += 1) {
-                if (xs.data[i] == 0) {
-                    // xs ended
-                    return true;
-                }
-
-                if (xs.data[i] != key[i]) {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        fn common_prefix_len(xs: Self, ys: []const u8) u8 {
-            const l = @min(N, ys.len);
-            var i: u8 = 0;
-            while (i < l) : (i += 1) {
-                if (xs.data[i] == 0) {
-                    // xs ended
-                    return i;
-                }
-
-                if (xs.data[i] != ys[i]) {
-                    return i;
-                }
-            }
-
-            return l;
-        }
-
-        fn copy_to_smallstr(xs: *Self, ys: []const u8) u8 {
-            const l = @min(N, ys.len);
-            var i: u8 = 0;
-            while (i < l) : (i += 1) {
-                xs.data[i] = ys[i];
-            }
-
-            return @as(u8, @intCast(l));
-        }
-    };
-}
 
 pub const TrieBlock = struct {
     const TrieChildCount = 8;
@@ -197,14 +125,14 @@ pub const TrieBlock = struct {
             if (key.len < SmallStrLen) {
                 // Insert single
                 self.*.len += 1;
-                _ = self.nodes[insert_index].copy_to_smallstr(key);
+                _ = self.nodes[insert_index].copy_to(key);
                 self.node_is_leaf[insert_index] = true;
                 self.data[insert_index] = 0;
                 self.costs[insert_index] = BaseCost;
             } else {
                 // Insert multiple
                 self.*.len += 1;
-                _ = self.nodes[insert_index].copy_to_smallstr(key[0..SmallStrLen]);
+                _ = self.nodes[insert_index].copy_to(key[0..SmallStrLen]);
 
                 trie.blocks.append(TrieBlock.empty());
                 var new_node_id: u32 = @intCast(trie.blocks.len.* - 1);
@@ -407,7 +335,7 @@ pub const TrieWalker = struct {
                 .LeafMatch => |x| {
                     self.char_id += @intCast(x.chars_used);
                     var node = current.nodes[@intCast(x.node_id)];
-                    _ = self.extension.copy_to_smallstr(node.slice()[@intCast(x.chars_used)..]);
+                    _ = self.extension.copy_to(node.slice()[@intCast(x.chars_used)..]);
                     self.cost = current.costs[@intCast(x.node_id)];
                     self.reached_leaf = true;
                     return true;
@@ -415,7 +343,7 @@ pub const TrieWalker = struct {
                 .NodeMatch => |x| {
                     self.char_id += @intCast(x.chars_used);
                     var node = current.nodes[@intCast(x.node_id)];
-                    _ = self.extension.copy_to_smallstr(node.slice()[@intCast(x.chars_used)..]);
+                    _ = self.extension.copy_to(node.slice()[@intCast(x.chars_used)..]);
                     self.cost = current.costs[@intCast(x.node_id)];
 
                     self.trie_view.current_block = x.next_chunk_id;
