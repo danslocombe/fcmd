@@ -5,7 +5,7 @@ const Zipper = @import("zipper.zig").Zipper;
 const run = @import("run.zig");
 const ring_buffer = @import("ring_buffer.zig");
 const CompletionHandler = @import("completion.zig").CompletionHandler;
-const block_trie = @import("block_trie.zig");
+const lego_trie = @import("lego_trie.zig");
 const data = @import("data.zig");
 
 pub const Shell = struct {
@@ -14,7 +14,7 @@ pub const Shell = struct {
     completion_handler: CompletionHandler,
     current_completion: ?[]const u8 = null,
 
-    pub fn init(trie_blocks: data.DumbList(block_trie.TrieBlock)) Shell {
+    pub fn init(trie_blocks: data.DumbList(lego_trie.TrieBlock)) Shell {
         return .{
             .current_prompt = Zipper.init(),
             .history = .{

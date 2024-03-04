@@ -394,7 +394,8 @@ pub const TrieWalker = struct {
     pub fn walk_to_end(self: *TrieWalker, allocator: std.mem.Allocator) []const u8 {
         _ = allocator;
         _ = self;
-        @panic("TOOD");
+        //@panic("TOOD");
+        return "";
     }
 
     pub fn walk_to(self: *TrieWalker) bool {

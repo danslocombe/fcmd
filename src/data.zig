@@ -1,7 +1,7 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
 const windows = @import("windows.zig");
-const block_trie = @import("block_trie.zig");
+const lego_trie = @import("lego_trie.zig");
 
 const STANDARD_RIGHTS_REQUIRED = 0x000F0000;
 const SECTION_QUERY = @as(c_int, 0x0001);
@@ -21,7 +21,7 @@ pub const BackingData = struct {
     map_view_pointer: *anyopaque,
     map: []u8,
 
-    trie_blocks: DumbList(block_trie.TrieBlock),
+    trie_blocks: DumbList(lego_trie.TrieBlock),
 
     //allocator: MMFBackedFixedAllocator,
 
@@ -60,13 +60,13 @@ pub const BackingData = struct {
         //map_alloc.end_index_ptr = @ptrCast(@alignCast(map.ptr + 8));
         //map_alloc.map = map[8 + @sizeOf(usize) ..];
 
-        var trie_blocks: DumbList(block_trie.TrieBlock) = undefined;
+        var trie_blocks: DumbList(lego_trie.TrieBlock) = undefined;
         trie_blocks.len = @ptrCast(@alignCast(map.ptr + 8));
         const start = 8 + @sizeOf(usize);
-        var trie_block_count = @divFloor(map.len - start, @sizeOf(block_trie.TrieBlock));
-        var end = trie_block_count * @sizeOf(block_trie.TrieBlock);
+        var trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
+        var end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
         var trieblock_bytes = map[start .. start + end];
-        trie_blocks.map = @alignCast(std.mem.bytesAsSlice(block_trie.TrieBlock, trieblock_bytes));
+        trie_blocks.map = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, trieblock_bytes));
 
         if (std.mem.allEqual(u8, map_magic_number, 0)) {
             std.debug.print("Resetting state...\n", .{});

@@ -2,14 +2,14 @@ const std = @import("std");
 const alloc = @import("alloc.zig");
 const data = @import("data.zig");
 
-const block_trie = @import("block_trie.zig");
+const lego_trie = @import("lego_trie.zig");
 
 pub const CompletionHandler = struct {
     local_history: LocalHistoryCompleter,
     global_history: GlobalHistoryCompleter,
     directory_completer: DirectoryCompleter,
 
-    pub fn init(trie_blocks: data.DumbList(block_trie.TrieBlock)) CompletionHandler {
+    pub fn init(trie_blocks: data.DumbList(lego_trie.TrieBlock)) CompletionHandler {
         var base = HistoryCompleter.init(trie_blocks);
         return .{
             .global_history = .{ .completer = base },
@@ -163,10 +163,10 @@ pub const GlobalHistoryCompleter = struct {
 };
 
 pub const HistoryCompleter = struct {
-    trie: block_trie.Trie,
+    trie: lego_trie.Trie,
 
-    pub fn init(trie_blocks: data.DumbList(block_trie.TrieBlock)) HistoryCompleter {
-        return .{ .trie = block_trie.Trie.init(trie_blocks) };
+    pub fn init(trie_blocks: data.DumbList(lego_trie.TrieBlock)) HistoryCompleter {
+        return .{ .trie = lego_trie.Trie.init(trie_blocks) };
     }
 
     pub fn insert(self: *HistoryCompleter, cmd: []const u8) void {
@@ -176,7 +176,7 @@ pub const HistoryCompleter = struct {
 
     pub fn get_completion(self: *HistoryCompleter, prefix: []const u8) ?[]const u8 {
         var view = self.trie.to_view();
-        var walker = block_trie.TrieWalker.init(view, prefix);
+        var walker = lego_trie.TrieWalker.init(view, prefix);
         if (walker.walk_to()) {
             // All of this should be cleaned up, walker so ugly atm.
             var extension = walker.extension.slice();
