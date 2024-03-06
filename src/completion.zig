@@ -19,7 +19,7 @@ pub const CompletionHandler = struct {
     }
 
     pub fn update(self: *CompletionHandler, cmd: []const u8) void {
-        self.local_history.insert(cmd);
+        //self.local_history.insert(cmd);
         self.global_history.insert(cmd);
     }
 

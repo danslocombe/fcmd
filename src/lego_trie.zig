@@ -258,21 +258,30 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
 
         pub fn promote_tall_to_wide(self: *Self, trie: *Trie) WideNodeData {
             // Allocate new
-            var new: [TallNodeLen]u30 = undefined;
-
             var replacement = WideNodeData{};
 
             for (0..TallNodeLen) |i| {
-                trie.blocks.append(TrieBlock.empty_tall());
-                new[i] = @intCast(trie.blocks.len.* - 1);
+                if (self.nodes[i].len() <= WideStringLen) {
+                    // Special case already short enough, don't allocate anything just copy over.
+                    replacement.nodes[i].assign_from(self.nodes[i].slice());
+                    replacement.data[i] = self.data[i];
+                    replacement.costs[i] = self.costs[i];
 
-                var new_block = trie.blocks.at(@intCast(new[i]));
-                new_block.node_data.tall.nodes[0] = self.nodes[i];
+                    continue;
+                }
+
+                trie.blocks.append(TrieBlock.empty_tall());
+                var new_index: u30 = @intCast(trie.blocks.len.* - 1);
+
+                var new_block = trie.blocks.at(@intCast(new_index));
+                new_block.node_data.tall.nodes[0].assign_from(self.nodes[i].slice()[WideStringLen..]);
                 new_block.node_data.tall.data[0] = self.data[i];
                 new_block.node_data.tall.costs[0] = self.costs[i];
 
-                _ = replacement.nodes[i].copy_to(self.nodes[i].slice()[0..WideStringLen]);
-                replacement.data[i] = self.data[i];
+                replacement.nodes[i].assign_from(self.nodes[i].slice()[0..WideStringLen]);
+                replacement.data[i].exists = true;
+                replacement.data[i].is_leaf = false;
+                replacement.data[i].data = new_index;
                 replacement.costs[i] = self.costs[i];
             }
 
@@ -367,14 +376,14 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
             var insert_index = self.get_child_size();
             if (key.len < StringLen) {
                 // Insert single
-                _ = self.nodes[insert_index].copy_to(key);
+                self.nodes[insert_index].assign_from(key);
                 self.data[insert_index].is_leaf = true;
                 self.data[insert_index].data = 0;
                 self.data[insert_index].exists = true;
                 self.costs[insert_index] = BaseCost;
             } else {
                 // Insert multiple
-                _ = self.nodes[insert_index].copy_to(key[0..StringLen]);
+                self.nodes[insert_index].assign_from(key[0..StringLen]);
 
                 trie.blocks.append(TrieBlock.empty_tall());
                 var new_node_id: u30 = @intCast(trie.blocks.len.* - 1);
@@ -496,7 +505,7 @@ pub const TrieWalker = struct {
                 self.reached_leaf = step_result.leaf_match;
 
                 self.char_id += @intCast(step_result.get_child.used_chars);
-                _ = self.extension.copy_to(step_result.get_child.slice[@intCast(step_result.get_child.used_chars)..]);
+                self.extension.assign_from(step_result.get_child.slice[@intCast(step_result.get_child.used_chars)..]);
                 self.cost = step_result.get_child.cost;
 
                 if (self.reached_leaf) {
@@ -821,4 +830,35 @@ test "iterate spillover" {
     }
 
     try std.testing.expect(!iter.next());
+}
+
+test "promote tall to wide" {
+    var strings = [_][]const u8{
+        "GLOBAL_aaa",
+        "GLOBAL_bbb",
+        "GLOBAL_ccc",
+    };
+
+    var backing: [16]TrieBlock = undefined;
+    var len: usize = 0;
+    var blocks = data.DumbList(TrieBlock){
+        .len = &len,
+        .map = &backing,
+    };
+
+    var trie = Trie.init(blocks);
+    var view = trie.to_view();
+
+    for (strings) |s| {
+        try view.insert(s);
+    }
+
+    var walker = view.walker("GLOBAL_aaa");
+    try std.testing.expect(walker.walk_to());
+
+    walker = view.walker("GLOBAL_bbb");
+    try std.testing.expect(walker.walk_to());
+
+    walker = view.walker("GLOBAL_ccc");
+    try std.testing.expect(walker.walk_to());
 }

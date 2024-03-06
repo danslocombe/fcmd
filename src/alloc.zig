@@ -24,7 +24,7 @@ pub fn new_arraylist(comptime T: type) std.ArrayList(T) {
 // Is there a standard library function for this?
 pub fn zeroed(comptime T: type, comptime N: usize) [N]T {
     var xs: [N]T = undefined;
-    inline for (0..N) |i| {
+    for (0..N) |i| {
         xs[i] = 0;
     }
 
@@ -33,7 +33,7 @@ pub fn zeroed(comptime T: type, comptime N: usize) [N]T {
 
 pub fn trued(comptime N: usize) [N]bool {
     var xs: [N]bool = undefined;
-    inline for (0..N) |i| {
+    for (0..N) |i| {
         xs[i] = true;
     }
 
@@ -42,7 +42,7 @@ pub fn trued(comptime N: usize) [N]bool {
 
 pub fn defaulted(comptime T: type, comptime N: usize) [N]T {
     var xs: [N]T = undefined;
-    inline for (0..N) |i| {
+    for (0..N) |i| {
         xs[i] = .{};
     }
 

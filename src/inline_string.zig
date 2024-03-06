@@ -6,10 +6,13 @@ pub fn InlineString(comptime N: usize) type {
         const Self = @This();
         data: [N]u8 = alloc.zeroed(u8, N),
 
+        pub fn clear(self: *Self) void {
+            @memset(&self.data, 0);
+        }
+
         pub fn from_slice(xs: []const u8) Self {
-            std.debug.assert(xs.len <= N);
             var small_str = Self{};
-            _ = copy_to(&small_str, xs);
+            small_str.assign_from(xs);
             return small_str;
         }
 
@@ -62,14 +65,10 @@ pub fn InlineString(comptime N: usize) type {
             return l;
         }
 
-        pub fn copy_to(xs: *Self, ys: []const u8) usize {
-            const l = @min(N, ys.len);
-            var i: usize = 0;
-            while (i < l) : (i += 1) {
-                xs.data[i] = ys[i];
-            }
-
-            return l;
+        pub fn assign_from(self: *Self, xs: []const u8) void {
+            std.debug.assert(xs.len <= N);
+            self.clear();
+            @memcpy(self.data[0..xs.len], xs);
         }
     };
 }
