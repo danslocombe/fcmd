@@ -392,10 +392,35 @@ pub const TrieWalker = struct {
     }
 
     pub fn walk_to_end(self: *TrieWalker, allocator: std.mem.Allocator) []const u8 {
-        _ = allocator;
-        _ = self;
-        //@panic("TOOD");
-        return "";
+        var components = std.ArrayList([]const u8).init(alloc.temp_alloc.allocator());
+        while (true) {
+            var current = self.trie_view.trie.blocks.at(self.trie_view.current_block);
+            if (current.get_child_size() == 0) {
+                break;
+            }
+
+            var str: []const u8 = undefined;
+            var is_leaf: bool = undefined;
+            var next_block: u30 = undefined;
+
+            if (current.metadata.wide) {
+                str = current.node_data.wide.nodes[0].slice();
+                is_leaf = current.node_data.wide.data[0].is_leaf;
+                next_block = current.node_data.wide.data[0].data;
+            } else {
+                str = current.node_data.tall.nodes[0].slice();
+                is_leaf = current.node_data.tall.data[0].is_leaf;
+                next_block = current.node_data.tall.data[0].data;
+            }
+
+            components.append(str) catch unreachable;
+            if (is_leaf) {
+                break;
+            }
+            self.trie_view.current_block = next_block;
+        }
+
+        return std.mem.concat(allocator, u8, components.items) catch unreachable;
     }
 
     pub fn walk_to(self: *TrieWalker) bool {
