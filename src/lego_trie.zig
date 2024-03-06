@@ -100,7 +100,11 @@ pub const TrieBlock = struct {
             //
             // No sibling, need to insert one
             if (self.metadata.next == 0) {
-                trie.blocks.append(TrieBlock.empty_tall());
+                if (self.metadata.wide) {
+                    trie.blocks.append(TrieBlock.empty_wide());
+                } else {
+                    trie.blocks.append(TrieBlock.empty_tall());
+                }
                 var new_node_id: u32 = @intCast(trie.blocks.len.* - 1);
                 self.metadata.next = @intCast(new_node_id);
             }
@@ -120,65 +124,92 @@ pub const TrieBlock = struct {
         }
     }
 
-    pub fn insert_prefix_and_sort(self: *TrieBlock, trie: *Trie, key: []const u8) void {
-        self.insert_prefix(trie, key);
-
-        if (self.get_child_size() < 2) {
-            return;
-        }
-
+    pub fn sort(self: *TrieBlock, trie: *Trie) void {
         // Sort children
         // Bubble sort was the easiest to implement
         // I'm so sorry
         // @Speed.
-        //var total_count: usize = 0;
-        //var i_iter = ChildIterator{ .block = self, .trie = trie };
-        //while (i_iter.next()) {
-        //    total_count += 1;
-        //}
+        var total_count: usize = 0;
+        var i_iter = ChildIterator{ .block = self, .trie = trie };
+        while (i_iter.next()) {
+            total_count += 1;
+        }
 
-        //for (0..total_count) |i| {
-        //    var iter_0 = ChildIterator{ .block = self, .trie = trie };
-        //    var iter_1 = iter_0;
-        //    var res = iter_1.next();
-        //    std.debug.assert(res);
+        if (total_count < 2) {
+            // Nothing to do
+            return;
+        }
 
-        //    var swapped = false;
+        // Assume all of the same shape
+        var wide = self.metadata.wide;
 
-        //    for (0..(total_count - i - 1)) |_| {
-        //        res = iter_0.next();
-        //        std.debug.assert(res);
-        //        res = iter_1.next();
-        //        std.debug.assert(res);
+        for (0..total_count) |i| {
+            var iter_0 = ChildIterator{ .block = self, .trie = trie };
+            var iter_1 = iter_0;
+            var res = iter_1.next();
+            std.debug.assert(res);
 
-        //        var cost_0 = iter_0.block.costs[iter_0.i.?];
-        //        var cost_1 = iter_1.block.costs[iter_1.i.?];
+            var swapped = false;
 
-        //        // Use >= instead of > to prefer recent insertions
-        //        if (cost_0 >= cost_1) {
-        //            swapped = true;
+            for (0..(total_count - i - 1)) |_| {
+                res = iter_0.next();
+                std.debug.assert(res);
+                res = iter_1.next();
+                std.debug.assert(res);
 
-        //            var tmp_cost = iter_0.block.costs[iter_0.i.?];
-        //            var tmp_str = iter_0.block.nodes[iter_0.i.?];
-        //            var tmp_data = iter_0.block.data[iter_0.i.?];
-        //            var tmp_is_leaf = iter_0.block.node_is_leaf[iter_0.i.?];
+                // Remove duplication
+                if (wide) {
+                    var cost_0 = iter_0.block.node_data.wide.costs[iter_0.i.?];
+                    var cost_1 = iter_1.block.node_data.wide.costs[iter_1.i.?];
 
-        //            iter_0.block.costs[iter_0.i.?] = iter_1.block.costs[iter_1.i.?];
-        //            iter_0.block.nodes[iter_0.i.?] = iter_1.block.nodes[iter_1.i.?];
-        //            iter_0.block.data[iter_0.i.?] = iter_1.block.data[iter_1.i.?];
-        //            iter_0.block.node_is_leaf[iter_0.i.?] = iter_1.block.node_is_leaf[iter_1.i.?];
+                    // Use >= instead of > to prefer recent insertions
+                    if (cost_0 >= cost_1) {
+                        swapped = true;
 
-        //            iter_1.block.costs[iter_1.i.?] = tmp_cost;
-        //            iter_1.block.nodes[iter_1.i.?] = tmp_str;
-        //            iter_1.block.data[iter_1.i.?] = tmp_data;
-        //            iter_1.block.node_is_leaf[iter_1.i.?] = tmp_is_leaf;
-        //        }
-        //    }
+                        var tmp_cost = iter_0.block.node_data.wide.costs[iter_0.i.?];
+                        var tmp_str = iter_0.block.node_data.wide.nodes[iter_0.i.?];
+                        var tmp_data = iter_0.block.node_data.wide.data[iter_0.i.?];
 
-        //    if (!swapped) {
-        //        break;
-        //    }
-        //}
+                        iter_0.block.node_data.wide.costs[iter_0.i.?] = iter_1.block.node_data.wide.costs[iter_1.i.?];
+                        iter_0.block.node_data.wide.nodes[iter_0.i.?] = iter_1.block.node_data.wide.nodes[iter_1.i.?];
+                        iter_0.block.node_data.wide.data[iter_0.i.?] = iter_1.block.node_data.wide.data[iter_1.i.?];
+
+                        iter_1.block.node_data.wide.costs[iter_1.i.?] = tmp_cost;
+                        iter_1.block.node_data.wide.nodes[iter_1.i.?] = tmp_str;
+                        iter_1.block.node_data.wide.data[iter_1.i.?] = tmp_data;
+                    }
+                } else {
+                    var cost_0 = iter_0.block.node_data.tall.costs[iter_0.i.?];
+                    var cost_1 = iter_1.block.node_data.tall.costs[iter_1.i.?];
+
+                    // Use >= instead of > to prefer recent insertions
+                    if (cost_0 >= cost_1) {
+                        swapped = true;
+
+                        var tmp_cost = iter_0.block.node_data.tall.costs[iter_0.i.?];
+                        var tmp_str = iter_0.block.node_data.tall.nodes[iter_0.i.?];
+                        var tmp_data = iter_0.block.node_data.tall.data[iter_0.i.?];
+
+                        iter_0.block.node_data.tall.costs[iter_0.i.?] = iter_1.block.node_data.tall.costs[iter_1.i.?];
+                        iter_0.block.node_data.tall.nodes[iter_0.i.?] = iter_1.block.node_data.tall.nodes[iter_1.i.?];
+                        iter_0.block.node_data.tall.data[iter_0.i.?] = iter_1.block.node_data.tall.data[iter_1.i.?];
+
+                        iter_1.block.node_data.tall.costs[iter_1.i.?] = tmp_cost;
+                        iter_1.block.node_data.tall.nodes[iter_1.i.?] = tmp_str;
+                        iter_1.block.node_data.tall.data[iter_1.i.?] = tmp_data;
+                    }
+                }
+            }
+
+            if (!swapped) {
+                break;
+            }
+        }
+    }
+
+    pub fn insert_prefix_and_sort(self: *TrieBlock, trie: *Trie, key: []const u8) void {
+        self.insert_prefix(trie, key);
+        self.sort(trie);
     }
 };
 
@@ -683,7 +714,7 @@ test "insert splillover" {
         "ha",
     };
 
-    var backing: [16]TrieBlock = undefined;
+    var backing: [32]TrieBlock = undefined;
     var len: usize = 0;
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
