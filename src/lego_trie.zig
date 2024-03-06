@@ -7,6 +7,9 @@ const data = @import("data.zig");
 const BaseCost = 1000;
 
 const TallStringLen = 22;
+const TallNodeLen = 2;
+const WideStringLen = 1;
+const WideNodeLen = 8;
 
 pub const TrieBlock = struct {
     const NextAndBlockshape = packed struct {
@@ -54,15 +57,15 @@ pub const TrieBlock = struct {
 
     fn get_node_count(self: *TrieBlock) usize {
         if (self.metadata.wide) {
-            return 8;
+            return WideNodeLen;
         }
 
-        return 2;
+        return TallNodeLen;
     }
 
     fn get_string_size(self: *TrieBlock) usize {
         if (self.metadata.wide) {
-            return 1;
+            return WideStringLen;
         }
 
         return TallStringLen;
@@ -95,32 +98,35 @@ pub const TrieBlock = struct {
 
         // No matches
         if (child_size == node_count) {
-            // Couldnt find mathces in this node group, and the node group is full
-            // Move to siblings.
-            //
-            // No sibling, need to insert one
-            if (self.metadata.next == 0) {
-                if (self.metadata.wide) {
-                    trie.blocks.append(TrieBlock.empty_wide());
-                } else {
-                    trie.blocks.append(TrieBlock.empty_tall());
-                }
-                var new_node_id: u32 = @intCast(trie.blocks.len.* - 1);
-                self.metadata.next = @intCast(new_node_id);
-            }
-
-            var next = trie.blocks.at(@intCast(self.metadata.next));
-
-            // Note we don't call insert_prefix_and_sort here because the sorting run by the caller of this
-            // method will already go through all siblings.
-            return next.insert_prefix(trie, key);
-        } else {
-            // Insert into this node
-            if (self.metadata.wide) {
-                self.node_data.wide.insert_down(trie, key);
+            if (!self.metadata.wide) {
+                // Promote to wide
+                var replacement = self.node_data.tall.promote_tall_to_wide(trie);
+                self.node_data = .{ .wide = replacement };
+                self.metadata.wide = true;
             } else {
-                self.node_data.tall.insert_down(trie, key);
+                // Couldnt find mathces in this node group, and the node group is full
+                // Move to siblings.
+                //
+                // No sibling, need to insert one
+                if (self.metadata.next == 0) {
+                    trie.blocks.append(TrieBlock.empty_wide());
+                    var new_node_id: u32 = @intCast(trie.blocks.len.* - 1);
+                    self.metadata.next = @intCast(new_node_id);
+                }
+
+                var next = trie.blocks.at(@intCast(self.metadata.next));
+
+                // Note we don't call insert_prefix_and_sort here because the sorting run by the caller of this
+                // method will already go through all siblings.
+                return next.insert_prefix(trie, key);
             }
+        }
+
+        // Insert into this node
+        if (self.metadata.wide) {
+            self.node_data.wide.insert_down(trie, key);
+        } else {
+            self.node_data.tall.insert_down(trie, key);
         }
     }
 
@@ -227,6 +233,9 @@ pub const NodeDataWithIsLeaf = packed struct {
     is_leaf: bool = false,
 };
 
+pub const WideNodeData = NodeData(WideStringLen, WideNodeLen);
+pub const TallNodeData = NodeData(TallStringLen, TallNodeLen);
+
 pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
     return extern struct {
         const Self = @This();
@@ -245,6 +254,29 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
             }
 
             return size;
+        }
+
+        pub fn promote_tall_to_wide(self: *Self, trie: *Trie) WideNodeData {
+            // Allocate new
+            var new: [TallNodeLen]u30 = undefined;
+
+            var replacement = WideNodeData{};
+
+            for (0..TallNodeLen) |i| {
+                trie.blocks.append(TrieBlock.empty_tall());
+                new[i] = @intCast(trie.blocks.len.* - 1);
+
+                var new_block = trie.blocks.at(@intCast(new[i]));
+                new_block.node_data.tall.nodes[0] = self.nodes[i];
+                new_block.node_data.tall.data[0] = self.data[i];
+                new_block.node_data.tall.costs[0] = self.costs[i];
+
+                _ = replacement.nodes[i].copy_to(self.nodes[i].slice()[0..WideStringLen]);
+                replacement.data[i] = self.data[i];
+                replacement.costs[i] = self.costs[i];
+            }
+
+            return replacement;
         }
 
         pub fn get_child(self: Self, key: []const u8) ?GetChildResult {
@@ -504,7 +536,7 @@ pub const Trie = struct {
 
     pub fn init(trie_blocks: data_lib.DumbList(TrieBlock)) Trie {
         if (trie_blocks.len.* == 0) {
-            trie_blocks.append(TrieBlock.empty_wide());
+            trie_blocks.append(TrieBlock.empty_tall());
         }
 
         return Trie{
@@ -686,7 +718,7 @@ test "insert longstring" {
     var walker = view.walker("long");
     try std.testing.expect(walker.walk_to());
     try test_equal(walker.char_id, 4);
-    try std.testing.expectEqualSlices(u8, "longlonglonglonglon", walker.extension.slice());
+    try std.testing.expectEqualSlices(u8, "longlonglonglonglo", walker.extension.slice());
 
     walker = view.walker("longlonglonglonglonglongstring");
     try std.testing.expect(walker.walk_to());
