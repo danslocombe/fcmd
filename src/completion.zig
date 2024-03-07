@@ -25,6 +25,8 @@ pub const CompletionHandler = struct {
             //std.debug.print("Adding to global history...\n", .{});
             self.global_history.insert(cmd);
         }
+
+        self.directory_completer.clear();
     }
 
     pub fn get_completion(self: *CompletionHandler, prefix: []const u8) ?[]const u8 {
@@ -57,6 +59,18 @@ pub const DirectoryCompleter = struct {
     rel_dir: ?[]const u8 = null,
     filenames: ?std.ArrayList([]const u8) = null,
 
+    pub fn clear(self: *DirectoryCompleter) void {
+        if (self.rel_dir) |rd| {
+            alloc.gpa.allocator().free(rd);
+            self.rel_dir = null;
+        }
+
+        if (self.filenames) |xs| {
+            xs.deinit();
+            self.filenames = null;
+        }
+    }
+
     pub fn regenerate(self: *DirectoryCompleter, rel_dir: []const u8) void {
         if (self.rel_dir) |rd| {
             if (std.mem.eql(u8, rel_dir, rd)) {
@@ -81,12 +95,13 @@ pub const DirectoryCompleter = struct {
         // TODO handle absolute paths
         var cwd = std.fs.cwd();
         var dir: std.fs.IterableDir = undefined;
-        defer (dir.close());
         if (cwd.openIterableDir(rel_dir, .{})) |rdir| {
             dir = rdir;
         } else |_| {
             return;
         }
+
+        defer (dir.close());
         self.filenames = alloc.new_arraylist([]const u8);
 
         var iter = dir.iterate();
