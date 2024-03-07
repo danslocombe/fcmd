@@ -277,6 +277,13 @@ pub const Input = union(enum) {
             };
         }
 
+        // Ctrl + L
+        if (ci.utf8_char.bs[0] == '\x0C') {
+            return Input{
+                .Cls = void{},
+            };
+        }
+
         // Del character
         if (ci.utf8_char.bs[0] == '\x7F') {
             if (has_ctrl) {

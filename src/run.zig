@@ -8,6 +8,7 @@ pub const FroggyCommand = union(enum) {
     Cd: []const u8,
     Echo: []const u8,
     Ls: void,
+    Cls: void,
 
     pub fn execute(self: FroggyCommand) void {
         switch (self) {
@@ -20,8 +21,11 @@ pub const FroggyCommand = union(enum) {
             .Echo => |e| {
                 std.debug.print("{s}\n", .{e});
             },
-            else => {
-                std.debug.print("Unhandled FroggyCommand {}\n", .{self});
+            .Ls => {
+                run_cmd("dir");
+            },
+            .Cls => {
+                run_cmd("cls");
             },
         }
     }

@@ -110,6 +110,11 @@ pub const Shell = struct {
                         while (self.current_prompt.move_right()) |_| {}
                     }
                 },
+                .Cls => {
+                    // We love hackin'
+                    var cls = run.FroggyCommand{ .Cls = void{} };
+                    cls.execute();
+                },
                 else => {
                     // TODO
                 },
@@ -203,6 +208,7 @@ pub const Command = enum {
             .Down => Command.HistoryForward,
             .Complete => Command.Complete,
             .PartialComplete => Command.PartialComplete,
+            .Cls => Command.Cls,
             else => null,
         };
     }
