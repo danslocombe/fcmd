@@ -19,8 +19,12 @@ pub const CompletionHandler = struct {
     }
 
     pub fn update(self: *CompletionHandler, cmd: []const u8) void {
+        //std.debug.print("Adding to local history...\n", .{});
         self.local_history.insert(cmd);
-        self.global_history.insert(cmd);
+        if (is_global_command_heuristic(cmd)) {
+            //std.debug.print("Adding to global history...\n", .{});
+            self.global_history.insert(cmd);
+        }
     }
 
     pub fn get_completion(self: *CompletionHandler, prefix: []const u8) ?[]const u8 {
@@ -74,9 +78,10 @@ pub const DirectoryCompleter = struct {
 
         //std.debug.print("Regenerating DirectoryCompleter at '{s}'...\n", .{rel_dir});
 
-        // TODO handle full paths
+        // TODO handle absolute paths
         var cwd = std.fs.cwd();
         var dir: std.fs.IterableDir = undefined;
+        defer (dir.close());
         if (cwd.openIterableDir(rel_dir, .{})) |rdir| {
             dir = rdir;
         } else |_| {
@@ -218,4 +223,35 @@ fn has_unclosed_quotes(xs: []const u8) bool {
     }
 
     return double_count % 2 != 0 or single_count % 2 != 0 or backtick_count % 2 != 0;
+}
+
+fn is_global_command_heuristic(command: []const u8) bool {
+    var words_iter = std.mem.tokenizeAny(u8, command, " ");
+    var cwd = std.fs.cwd();
+
+    while (words_iter.next()) |word| {
+        // Word looks like C:\... an absolute path
+        if (word.len > 3 and word[1] == ':' and (word[2] == '\\' or word[2] == '/')) {
+            continue;
+        }
+
+        cwd.access(word, .{}) catch |err| {
+            switch (err) {
+                error.FileNotFound => {
+                    // Expected, not a file continue to next
+                    continue;
+                },
+                else => {
+                    // Some other error eg locked file, no permissions
+                    // File still exists so not global
+                    return false;
+                },
+            }
+        };
+
+        // Access succeeded, not a global command.
+        return false;
+    }
+
+    return true;
 }
