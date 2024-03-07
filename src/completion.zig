@@ -19,13 +19,17 @@ pub const CompletionHandler = struct {
     }
 
     pub fn update(self: *CompletionHandler, cmd: []const u8) void {
-        //self.local_history.insert(cmd);
+        self.local_history.insert(cmd);
         self.global_history.insert(cmd);
     }
 
     pub fn get_completion(self: *CompletionHandler, prefix: []const u8) ?[]const u8 {
         // No completions for empty prefix.
         if (prefix.len == 0) {
+            return null;
+        }
+
+        if (has_unclosed_quotes(prefix)) {
             return null;
         }
 
@@ -188,10 +192,30 @@ pub const HistoryCompleter = struct {
 
             //var buffer = alloc.gpa_alloc_idk(u8, extension.len);
             //@memcpy(buffer, extension);
-            var buffer = std.fmt.allocPrint(alloc.gpa.allocator(), "{s}{s}  Cost: {d}", .{ extension, end_extension, walker.cost }) catch unreachable;
+            //var buffer = std.fmt.allocPrint(alloc.gpa.allocator(), "{s}{s}  Cost: {d}", .{ extension, end_extension, walker.cost }) catch unreachable;
+            var buffer = std.fmt.allocPrint(alloc.gpa.allocator(), "{s}{s}", .{ extension, end_extension }) catch unreachable;
             return buffer;
         }
 
         return null;
     }
 };
+
+fn has_unclosed_quotes(xs: []const u8) bool {
+    var double_count: u32 = 0;
+    var single_count: u32 = 0;
+    var backtick_count: u32 = 0;
+    for (xs) |x| {
+        if (x == '"') {
+            double_count += 1;
+        }
+        if (x == '\'') {
+            single_count += 1;
+        }
+        if (x == '`') {
+            backtick_count += 1;
+        }
+    }
+
+    return double_count % 2 != 0 or single_count % 2 != 0 or backtick_count % 2 != 0;
+}
