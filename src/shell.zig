@@ -70,9 +70,43 @@ pub const Shell = struct {
                         while (self.current_prompt.move_right()) |_| {}
                     }
                 },
-                .Complete, .PartialComplete => {
+                .Complete => {
                     if (self.current_completion) |cc| {
                         self.current_prompt.bs.appendSlice(cc) catch unreachable;
+                        while (self.current_prompt.move_right()) |_| {}
+                    }
+                },
+                .PartialComplete => {
+                    if (self.current_completion) |cc| {
+                        // Drop whitespace at the start.
+                        var start_index: usize = 0;
+                        for (0..cc.len) |i| {
+                            if (cc[i] != ' ') {
+                                start_index = i;
+                                break;
+                            }
+                        }
+
+                        var end_index = start_index;
+                        var add_char: ?u8 = null;
+                        for (start_index..cc.len) |i| {
+                            if (cc[i] == ' ') {
+                                break;
+                            }
+
+                            end_index = i;
+
+                            if (cc[i] == '\\' or cc[i] == '/') {
+                                //add_char = cc[i];
+                                break;
+                            }
+                        }
+
+                        self.current_prompt.bs.appendSlice(cc[0 .. end_index + 1]) catch unreachable;
+                        if (add_char) |c| {
+                            self.current_prompt.bs.append(c) catch unreachable;
+                        }
+
                         while (self.current_prompt.move_right()) |_| {}
                     }
                 },
