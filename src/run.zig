@@ -2,6 +2,8 @@ const std = @import("std");
 const alloc = @import("alloc.zig");
 const shell = @import("shell.zig");
 
+pub var g_current_running_process_info: ?std.os.windows.PROCESS_INFORMATION = null;
+
 pub const FroggyCommand = union(enum) {
     Cd: []const u8,
     Echo: []const u8,
@@ -94,14 +96,26 @@ pub fn run_cmd(cmd: []const u8) void {
         .hStdError = null,
     };
 
-    var process_info: std.os.windows.PROCESS_INFORMATION = undefined;
-    std.os.windows.CreateProcessW(null, cmd_buf.ptr, null, null, 1, flags, null, null, &startup_info, &process_info) catch |err| {
+    g_current_running_process_info = undefined;
+    std.os.windows.CreateProcessW(null, cmd_buf.ptr, null, null, 1, flags, null, null, &startup_info, &g_current_running_process_info.?) catch |err| {
+        g_current_running_process_info = null;
         std.debug.print("Error! Unable to run command '{s}', CreateProcessW error {}\n", .{ cmd, err });
         return;
     };
 
-    std.os.windows.WaitForSingleObject(process_info.hThread, std.os.windows.INFINITE) catch unreachable;
+    std.os.windows.WaitForSingleObject(g_current_running_process_info.?.hThread, std.os.windows.INFINITE) catch unreachable;
 
-    std.os.windows.CloseHandle(process_info.hThread);
-    std.os.windows.CloseHandle(process_info.hProcess);
+    std.os.windows.CloseHandle(g_current_running_process_info.?.hThread);
+    std.os.windows.CloseHandle(g_current_running_process_info.?.hProcess);
+
+    g_current_running_process_info = null;
+}
+
+pub fn try_kill_running_process() bool {
+    if (g_current_running_process_info) |current_running_process| {
+        std.os.windows.TerminateProcess(current_running_process.hProcess, 100) catch {};
+        return true;
+    }
+
+    return false;
 }

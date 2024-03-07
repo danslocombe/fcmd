@@ -5,6 +5,7 @@ const shell_lib = @import("shell.zig");
 const console_input = @import("console_input.zig");
 const data = @import("data.zig");
 const windows = @import("windows.zig");
+const run = @import("run.zig");
 
 pub var h_stdout: *anyopaque = undefined;
 pub var h_stdin: *anyopaque = undefined;
@@ -30,6 +31,8 @@ pub fn main() !void {
 
     if (windows.SetConsoleCP(UTF8Codepage) == 0) @panic("Failed to set Console CodePage");
     if (windows.SetConsoleOutputCP(UTF8Codepage) == 0) @panic("Failed to set Console Output CodePage");
+
+    std.os.windows.SetConsoleCtrlHandler(control_signal_handler, true) catch @panic("Failed to set control signal handler");
 
     write_console("FroggyCMD 🐸!\n");
 
@@ -94,4 +97,25 @@ pub fn build_preprompt() []const u8 {
 
     var ret = std.mem.concat(alloc.gpa.allocator(), u8, &.{ filename, ">>> " }) catch unreachable;
     return ret;
+}
+
+pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(std.os.windows.WINAPI) std.os.windows.BOOL {
+    switch (signal) {
+        std.os.windows.CTRL_C_EVENT => {
+            //std.debug.print("Handling CTRL C\n", .{});
+            return if (run.try_kill_running_process()) 1 else 0;
+        },
+        std.os.windows.CTRL_BREAK_EVENT => {
+            //std.debug.print("Handling CTRL BREAK\n", .{});
+            return if (run.try_kill_running_process()) 1 else 0;
+        },
+        std.os.windows.CTRL_CLOSE_EVENT => {
+            //std.debug.print("Handling CTRL CLOSE\n", .{});
+            return if (run.try_kill_running_process()) 1 else 0;
+        },
+        else => {
+            // We don't handle any other events
+            return 0;
+        },
+    }
 }
