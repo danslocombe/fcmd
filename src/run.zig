@@ -16,7 +16,9 @@ pub const FroggyCommand = union(enum) {
                 // Same number of bytes should be enough space
                 var utf16_buffer = alloc.temp_alloc.allocator().alloc(u16, cd.len) catch unreachable;
                 _ = std.unicode.utf8ToUtf16Le(utf16_buffer, cd) catch unreachable;
-                std.os.windows.SetCurrentDirectory(utf16_buffer) catch unreachable;
+                std.os.windows.SetCurrentDirectory(utf16_buffer) catch |err| {
+                    std.debug.print("CD Error {}\n", .{err});
+                };
             },
             .Echo => |e| {
                 std.debug.print("{s}\n", .{e});
