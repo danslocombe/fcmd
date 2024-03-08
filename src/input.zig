@@ -5,18 +5,20 @@ const windows = @import("windows.zig");
 pub fn read_input(h_stdin: *anyopaque, input_buffer: *[64]Input, inputs_produced: *usize) bool {
     inputs_produced.* = 0;
 
+    // Read from windows api
     var record_buffer: [128]windows.INPUT_RECORD = undefined;
     var records_read: u32 = 0;
-    var success = windows.ReadConsoleInputW(h_stdin, &record_buffer, 128, &records_read) != 0;
-    if (!success) {
+    if (windows.ReadConsoleInputW(h_stdin, &record_buffer, 128, &records_read) == 0) {
         return false;
     }
 
-    var buffered_utf16_chars: [4]u16 = alloc.zeroed(u16, 4);
-    var buffered_utf16_len: usize = 0;
-
+    // Convert windows api records to console inputs
     var console_input_buffer: [64]ConsoleInput = undefined;
     var console_inputs_produced: usize = 0;
+
+    // Keep a buffer for multi u16 utf codepoints
+    var buffered_utf16_chars: [4]u16 = alloc.zeroed(u16, 4);
+    var buffered_utf16_len: usize = 0;
 
     for (0..@intCast(records_read)) |i| {
         var record = record_buffer[i];
@@ -51,6 +53,9 @@ pub fn read_input(h_stdin: *anyopaque, input_buffer: *[64]Input, inputs_produced
     }
 
     var console_inputs = console_input_buffer[0..console_inputs_produced];
+
+    // Try and parse out virtual terminal escape sequences into a single command
+    //
     // TODO can we have escape sequences mixed in with other inputs?
     // If so we need to greedily try and pull escape sequnces
     if (try_parse_console_inputs_as_escape_sequence(console_inputs)) |input| {

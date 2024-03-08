@@ -1,5 +1,5 @@
 const std = @import("std");
-const alloc = @import("alloc.zig");
+const alloc = @import("../alloc.zig");
 
 pub fn InlineString(comptime N: usize) type {
     return extern struct {

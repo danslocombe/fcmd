@@ -1,8 +1,9 @@
 const std = @import("std");
-const alloc = @import("alloc.zig");
-const data_lib = @import("data.zig");
+const alloc = @import("../alloc.zig");
+const data_lib = @import("../data.zig");
+const data = @import("../data.zig");
+
 const InlineString = @import("inline_string.zig").InlineString;
-const data = @import("data.zig");
 
 const BaseCost = 1000;
 

@@ -1,4 +1,4 @@
-const alloc = @import("alloc.zig");
+const alloc = @import("../alloc.zig");
 
 pub fn RingBuffer(comptime T: type) type {
     return struct {

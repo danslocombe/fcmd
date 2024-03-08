@@ -3,7 +3,7 @@ const alloc = @import("alloc.zig");
 const data = @import("data.zig");
 const windows = @import("windows.zig");
 
-const lego_trie = @import("lego_trie.zig");
+const lego_trie = @import("datastructures/lego_trie.zig");
 
 pub const CompletionHandler = struct {
     local_history: LocalHistoryCompleter,

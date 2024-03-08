@@ -1,6 +1,6 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
-const console_input = @import("console_input.zig");
+const input = @import("input.zig");
 
 pub const Zipper = struct {
     bs: std.ArrayList(u8),
@@ -18,8 +18,8 @@ pub const Zipper = struct {
         self.char_index = 0;
     }
 
-    pub fn apply_input(self: *Zipper, input: console_input.Input) void {
-        switch (input) {
+    pub fn apply_input(self: *Zipper, in: input.Input) void {
+        switch (in) {
             .Append => |*c| {
                 var c_slice = c.slice();
                 if (self.byte_index == self.bs.items.len) {

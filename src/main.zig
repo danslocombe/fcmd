@@ -2,7 +2,7 @@ const std = @import("std");
 const alloc = @import("alloc.zig");
 const shell_lib = @import("shell.zig");
 
-const console_input = @import("console_input.zig");
+const input = @import("input.zig");
 const data = @import("data.zig");
 const windows = @import("windows.zig");
 const run = @import("run.zig");
@@ -39,9 +39,9 @@ pub fn main() !void {
     var backing = data.BackingData.init();
     var shell = shell_lib.Shell.init(backing.trie_blocks);
 
-    var buffer: [64]console_input.Input = undefined;
+    var buffer: [64]input.Input = undefined;
     var inputs_produced: usize = 0;
-    while (console_input.read_input(h_stdin, &buffer, &inputs_produced)) {
+    while (input.read_input(h_stdin, &buffer, &inputs_produced)) {
         for (0..inputs_produced) |i| {
             shell.apply_input(buffer[i]);
         }

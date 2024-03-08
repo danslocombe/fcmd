@@ -1,7 +1,8 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
 const windows = @import("windows.zig");
-const lego_trie = @import("lego_trie.zig");
+
+const lego_trie = @import("datastructures/lego_trie.zig");
 
 const STANDARD_RIGHTS_REQUIRED = 0x000F0000;
 const SECTION_QUERY = @as(c_int, 0x0001);

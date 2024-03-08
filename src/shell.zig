@@ -1,12 +1,13 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
-const console_input = @import("console_input.zig");
+const input = @import("input.zig");
 const Zipper = @import("zipper.zig").Zipper;
 const run = @import("run.zig");
-const ring_buffer = @import("ring_buffer.zig");
 const CompletionHandler = @import("completion.zig").CompletionHandler;
-const lego_trie = @import("lego_trie.zig");
 const data = @import("data.zig");
+
+const ring_buffer = @import("datastructures/ring_buffer.zig");
+const lego_trie = @import("datastructures/lego_trie.zig");
 
 pub const Shell = struct {
     current_prompt: Zipper,
@@ -24,8 +25,8 @@ pub const Shell = struct {
         };
     }
 
-    pub fn apply_input(self: *Shell, input: console_input.Input) void {
-        if (Command.try_get_from_input(input)) |command| {
+    pub fn apply_input(self: *Shell, in: input.Input) void {
+        if (Command.try_get_from_input(in)) |command| {
             switch (command) {
                 .Run => {
                     var cmd = self.current_prompt.bs.items;
@@ -120,7 +121,7 @@ pub const Shell = struct {
                 },
             }
         } else {
-            self.current_prompt.apply_input(input);
+            self.current_prompt.apply_input(in);
         }
 
         // TODO dont recompute when we dont have to
@@ -201,8 +202,8 @@ pub const Command = enum {
     Exit,
     NoOp,
 
-    fn try_get_from_input(input: console_input.Input) ?Command {
-        return switch (input) {
+    fn try_get_from_input(in: input.Input) ?Command {
+        return switch (in) {
             .Enter => Command.Run,
             .Up => Command.HistoryBack,
             .Down => Command.HistoryForward,
