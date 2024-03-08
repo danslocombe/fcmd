@@ -1,7 +1,9 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
 const input = @import("input.zig");
-const Zipper = @import("zipper.zig").Zipper;
+const zipper_lib = @import("zipper.zig");
+const Zipper = zipper_lib.Zipper;
+const ZipperCursorPos = zipper_lib.ZipperCursorPos;
 const run = @import("run.zig");
 const CompletionHandler = @import("completion.zig").CompletionHandler;
 const data = @import("data.zig");
@@ -12,14 +14,16 @@ const ring_buffer = @import("datastructures/ring_buffer.zig");
 const lego_trie = @import("datastructures/lego_trie.zig");
 
 pub const Shell = struct {
-    current_prompt: Zipper,
+    prompt: Zipper,
+    partial_complete_prev_cursor_pos: ?ZipperCursorPos = null,
+
     history: History,
     completion_handler: CompletionHandler,
     current_completion: ?[]const u8 = null,
 
     pub fn init(trie_blocks: data.DumbList(lego_trie.TrieBlock)) Shell {
         return .{
-            .current_prompt = Zipper.init(),
+            .prompt = Zipper.init(),
             .history = .{
                 .buffer = ring_buffer.RingBuffer([]const u8).init(256, ""),
             },
@@ -31,7 +35,7 @@ pub const Shell = struct {
         if (Command.try_get_from_input(in)) |command| {
             switch (command) {
                 .Run => {
-                    var cmd = self.current_prompt.bs.items;
+                    var cmd = self.prompt.bs.items;
 
                     // Handle this nicely
                     std.debug.print("\n", .{});
@@ -49,68 +53,104 @@ pub const Shell = struct {
                         alloc.gpa.allocator().free(cwd);
                     }
                     self.completion_handler.local_history.cwd_path = null;
-                    self.current_prompt.clear();
+
+                    self.prompt.clear();
+                    self.partial_complete_prev_cursor_pos = null;
                 },
                 .HistoryBack => {
                     var current_history = self.history.get_current();
-                    if (!std.mem.eql(u8, current_history, self.current_prompt.bs.items)) {
+                    if (!std.mem.eql(u8, current_history, self.prompt.bs.items)) {
                         // Reset to current history item
-                        self.current_prompt.clear();
-                        self.current_prompt.bs.appendSlice(current_history) catch unreachable;
-                        while (self.current_prompt.move_right()) |_| {}
+                        self.prompt.clear();
+                        self.partial_complete_prev_cursor_pos = null;
+
+                        self.prompt.bs.appendSlice(current_history) catch unreachable;
+                        while (self.prompt.move_right()) |_| {}
                     } else {
                         if (self.history.back()) |prev_cmd| {
-                            self.current_prompt.clear();
-                            self.current_prompt.bs.appendSlice(prev_cmd) catch unreachable;
-                            while (self.current_prompt.move_right()) |_| {}
+                            self.prompt.clear();
+                            self.partial_complete_prev_cursor_pos = null;
+
+                            self.prompt.bs.appendSlice(prev_cmd) catch unreachable;
+                            while (self.prompt.move_right()) |_| {}
                         }
                     }
                 },
                 .HistoryForward => {
                     if (self.history.forward()) |next_cmd| {
-                        self.current_prompt.clear();
-                        self.current_prompt.bs.appendSlice(next_cmd) catch unreachable;
-                        while (self.current_prompt.move_right()) |_| {}
+                        self.prompt.clear();
+                        self.partial_complete_prev_cursor_pos = null;
+                        self.prompt.bs.appendSlice(next_cmd) catch unreachable;
+                        while (self.prompt.move_right()) |_| {}
                     }
                 },
                 .Complete => {
                     if (self.current_completion) |cc| {
-                        self.current_prompt.bs.appendSlice(cc) catch unreachable;
-                        while (self.current_prompt.move_right()) |_| {}
+                        self.prompt.bs.appendSlice(cc) catch unreachable;
+                        while (self.prompt.move_right()) |_| {}
                     }
                 },
-                .PartialComplete => {
+                .PartialComplete, .PartialCompleteReverse => {
+                    var reverse = command == Command.PartialCompleteReverse;
+
+                    if (self.partial_complete_prev_cursor_pos) |pos| {
+                        if (self.current_completion == null or self.current_completion.?.len == 0) {
+                            if (self.current_completion) |cc| {
+                                alloc.gpa.allocator().free(cc);
+                            }
+
+                            if (reverse) {
+                                self.completion_handler.cycle_index -|= 1;
+                            } else {
+                                self.completion_handler.cycle_index += 1;
+                            }
+
+                            self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items[0..pos.byte_index]);
+
+                            // Bit ugly, if we've gone too far back up
+                            if ((self.current_completion == null or self.current_completion.?.len == 0) and !reverse) {
+                                self.completion_handler.cycle_index -|= 1;
+                            } else {
+                                self.prompt.move_to_and_clear_end(pos);
+                            }
+                        }
+                    }
+
                     if (self.current_completion) |cc| {
-                        // Drop whitespace at the start.
-                        var start_index: usize = 0;
-                        for (0..cc.len) |i| {
-                            if (cc[i] != ' ') {
-                                start_index = i;
-                                break;
-                            }
-                        }
+                        if (cc.len > 0) {
+                            self.partial_complete_prev_cursor_pos = self.prompt.pos;
 
-                        var end_index = start_index;
-                        var add_char: ?u8 = null;
-                        for (start_index..cc.len) |i| {
-                            if (cc[i] == ' ') {
-                                break;
+                            // Drop whitespace at the start.
+                            var start_index: usize = 0;
+                            for (0..cc.len) |i| {
+                                if (cc[i] != ' ') {
+                                    start_index = i;
+                                    break;
+                                }
                             }
 
-                            end_index = i;
+                            var end_index = start_index;
+                            var add_char: ?u8 = null;
+                            for (start_index..cc.len) |i| {
+                                if (cc[i] == ' ') {
+                                    break;
+                                }
 
-                            if (cc[i] == '\\' or cc[i] == '/') {
-                                //add_char = cc[i];
-                                break;
+                                end_index = i;
+
+                                if (cc[i] == '\\' or cc[i] == '/') {
+                                    //add_char = cc[i];
+                                    break;
+                                }
                             }
-                        }
 
-                        self.current_prompt.bs.appendSlice(cc[0 .. end_index + 1]) catch unreachable;
-                        if (add_char) |c| {
-                            self.current_prompt.bs.append(c) catch unreachable;
-                        }
+                            self.prompt.bs.appendSlice(cc[0 .. end_index + 1]) catch unreachable;
+                            if (add_char) |c| {
+                                self.prompt.bs.append(c) catch unreachable;
+                            }
 
-                        while (self.current_prompt.move_right()) |_| {}
+                            while (self.prompt.move_right()) |_| {}
+                        }
                     }
                 },
                 .Cls => {
@@ -123,14 +163,18 @@ pub const Shell = struct {
                 },
             }
         } else {
-            self.current_prompt.apply_input(in);
+            self.prompt.apply_input(in);
+
+            self.completion_handler.cycle_index = 0;
+            self.partial_complete_prev_cursor_pos = null;
         }
 
         // TODO dont recompute when we dont have to
         if (self.current_completion) |cc| {
             alloc.gpa.allocator().free(cc);
         }
-        self.current_completion = self.completion_handler.get_completion(self.current_prompt.bs.items);
+
+        self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items);
     }
 
     pub fn draw(self: *Shell) void {
@@ -142,7 +186,7 @@ pub const Shell = struct {
         var built_preprompt = preprompt.build_preprompt();
         defer (alloc.gpa.allocator().free(built_preprompt));
 
-        var prompt_buffer: []const u8 = self.current_prompt.bs.items;
+        var prompt_buffer: []const u8 = self.prompt.bs.items;
 
         var completion_command: []const u8 = "";
         if (self.current_completion) |completion| {
@@ -153,7 +197,7 @@ pub const Shell = struct {
         }
 
         // TODO handle setting cursor y pos.
-        var cursor_x_pos = built_preprompt.len + self.current_prompt.char_index + 1;
+        var cursor_x_pos = built_preprompt.len + self.prompt.pos.char_index + 1;
         var set_cursor_to_prompt_pos = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[{}G", .{cursor_x_pos}) catch unreachable;
 
         var commands = [_][]const u8{
@@ -231,6 +275,7 @@ pub const Command = enum {
 
     Complete,
     PartialComplete,
+    PartialCompleteReverse,
 
     HistoryBack,
     HistoryForward,
@@ -246,6 +291,7 @@ pub const Command = enum {
             .Down => Command.HistoryForward,
             .Complete => Command.Complete,
             .PartialComplete => Command.PartialComplete,
+            .PartialCompleteReverse => Command.PartialCompleteReverse,
             .Cls => Command.Cls,
             else => null,
         };

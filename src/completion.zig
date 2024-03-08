@@ -10,6 +10,8 @@ pub const CompletionHandler = struct {
     global_history: GlobalHistoryCompleter,
     directory_completer: DirectoryCompleter,
 
+    cycle_index: usize = 0,
+
     pub fn init(trie_blocks: data.DumbList(lego_trie.TrieBlock)) CompletionHandler {
         var base = HistoryCompleter.init(trie_blocks);
         return .{
@@ -20,6 +22,8 @@ pub const CompletionHandler = struct {
     }
 
     pub fn update(self: *CompletionHandler, cmd: []const u8) void {
+        self.cycle_index = 0;
+
         //std.debug.print("Adding to local history...\n", .{});
         self.local_history.insert(cmd);
         if (is_global_command_heuristic(cmd)) {
@@ -36,16 +40,26 @@ pub const CompletionHandler = struct {
             return null;
         }
 
+        var cycle = self.cycle_index;
+
         if (self.local_history.get_completion(prefix)) |completion| {
-            return completion;
+            if (cycle == 0) {
+                return completion;
+            } else {
+                cycle -|= 1;
+            }
         }
 
         if (self.global_history.get_completion(prefix)) |completion| {
-            return completion;
+            if (cycle == 0) {
+                return completion;
+            } else {
+                cycle -|= 1;
+            }
         }
 
         if (!has_unclosed_quotes(prefix)) {
-            if (self.directory_completer.get_completion(prefix)) |completion| {
+            if (self.directory_completer.get_completion(prefix, cycle)) |completion| {
                 return completion;
             }
         }
@@ -116,13 +130,20 @@ pub const DirectoryCompleter = struct {
         }
     }
 
-    pub fn get_completion(self: *DirectoryCompleter, prefix: []const u8) ?[]const u8 {
+    pub fn get_completion(self: *DirectoryCompleter, prefix: []const u8, p_cycle: usize) ?[]const u8 {
+        var cycle = p_cycle;
+
         // TODO drop all but final word
         var last_word = prefix;
 
-        var words_iter = std.mem.tokenizeAny(u8, prefix, " ");
-        while (words_iter.next()) |word| {
-            last_word = word;
+        if (prefix.len > 0 and prefix[prefix.len - 1] == ' ') {
+            // Ends with a space, want to match any files.
+            last_word = "";
+        } else {
+            var words_iter = std.mem.tokenizeAny(u8, prefix, " ");
+            while (words_iter.next()) |word| {
+                last_word = word;
+            }
         }
 
         var prefix_for_query = last_word;
@@ -140,6 +161,11 @@ pub const DirectoryCompleter = struct {
         if (self.filenames) |xs| {
             for (xs.items) |x| {
                 if (std.mem.startsWith(u8, x, prefix_for_query)) {
+                    if (cycle > 0) {
+                        cycle -|= 1;
+                        continue;
+                    }
+
                     return alloc.copy_slice_to_gpa(x[prefix_for_query.len..]);
                 }
             }

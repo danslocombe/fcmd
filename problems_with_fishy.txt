@@ -1,0 +1,12 @@
+Bugs with input handling
+    - dropped inputs especially on opening
+    - no support for shift and control to cycle backwards
+
+Bugs with history 
+    - commands not added to history correctly
+
+Bugs with multiline wrapping prompts
+
+Bugs with dropping state sometimes due to race conditions in save
+
+

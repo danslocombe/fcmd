@@ -142,6 +142,10 @@ pub fn try_parse_console_inputs_as_escape_sequence(cis: []const ConsoleInput) ?I
             };
         }
 
+        if (escape_sequence_equal("Z", cis[2..])) {
+            return Input{ .PartialCompleteReverse = void{} };
+        }
+
         {
             var chars: [64][]const u8 = undefined;
             for (cis[2..], 0..) |c, i| {
@@ -187,6 +191,7 @@ pub const Input = union(enum) {
 
     Complete: void,
     PartialComplete: void,
+    PartialCompleteReverse: void,
 
     Enter: void,
 
@@ -261,7 +266,7 @@ pub const Input = union(enum) {
             };
         }
 
-        // Ctrl + R
+        // Ctrl + F
         if (ci.utf8_char.bs[0] == '\x06') {
             return Input{
                 .Complete = void{},
