@@ -5,6 +5,7 @@ const Zipper = @import("zipper.zig").Zipper;
 const run = @import("run.zig");
 const CompletionHandler = @import("completion.zig").CompletionHandler;
 const data = @import("data.zig");
+const windows = @import("windows.zig");
 
 const ring_buffer = @import("datastructures/ring_buffer.zig");
 const lego_trie = @import("datastructures/lego_trie.zig");
@@ -130,7 +131,51 @@ pub const Shell = struct {
         }
         self.current_completion = self.completion_handler.get_completion(self.current_prompt.bs.items);
     }
+
+    pub fn draw(self: *Shell) void {
+        const set_cursor_x_to_zero = "\x1b[0G";
+        const clear_to_end_of_line = "\x1b[K";
+
+        const clear_commands = comptime std.fmt.comptimePrint("{s}{s}", .{ set_cursor_x_to_zero, clear_to_end_of_line });
+
+        var preprompt = build_preprompt();
+        defer (alloc.gpa.allocator().free(preprompt));
+
+        var prompt_buffer: []const u8 = self.current_prompt.bs.items;
+
+        var completion_command: []const u8 = "";
+        if (self.current_completion) |completion| {
+            // Magenta: 35
+            // Red: 31
+            // Cyan: 36
+            completion_command = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[1m\x1b[36m{s}\x1b[0m", .{completion}) catch unreachable;
+        }
+
+        // TODO handle setting cursor y pos.
+        var cursor_x_pos = preprompt.len + self.current_prompt.char_index + 1;
+        var set_cursor_to_prompt_pos = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[{}G", .{cursor_x_pos}) catch unreachable;
+
+        var commands = [_][]const u8{
+            clear_commands,
+            preprompt,
+            prompt_buffer,
+            completion_command,
+            set_cursor_to_prompt_pos,
+        };
+
+        var buffer = std.mem.concat(alloc.temp_alloc.allocator(), u8, &commands) catch unreachable;
+        windows.write_console(buffer);
+    }
 };
+
+pub fn build_preprompt() []const u8 {
+    var cwd = std.fs.cwd();
+    var buffer: [std.os.windows.PATH_MAX_WIDE * 3 + 1]u8 = undefined;
+    var filename = std.os.getFdPath(cwd.fd, &buffer) catch unreachable;
+
+    var ret = std.mem.concat(alloc.gpa.allocator(), u8, &.{ filename, ">>> " }) catch unreachable;
+    return ret;
+}
 
 pub const History = struct {
     buffer: ring_buffer.RingBuffer([]const u8),
