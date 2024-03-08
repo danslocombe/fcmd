@@ -29,7 +29,19 @@ pub const BackingData = struct {
         var appdata: []const u8 = windows.get_appdata_path();
         defer (alloc.gpa.allocator().free(appdata));
 
-        var path: [*c]const u8 = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ appdata, "\\fcmd\\trie.frog" }, 0) catch unreachable;
+        var fcmd_appdata_dir = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ appdata, "\\fcmd" }, 0) catch unreachable;
+        std.fs.makeDirAbsolute(fcmd_appdata_dir) catch |err| {
+            switch (err) {
+                error.PathAlreadyExists => {
+                    // This is fine
+                },
+                else => {
+                    alloc.fmt_panic("MakeDirAbsolute error when creating '{s}' {}\n", .{ fcmd_appdata_dir, err });
+                },
+            }
+        };
+
+        var path: [*c]const u8 = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ fcmd_appdata_dir, "\\trie.frog" }, 0) catch unreachable;
 
         const GENERIC_READ = 0x80000000;
         const GENERIC_WRITE = 0x40000000;

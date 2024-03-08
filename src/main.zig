@@ -34,7 +34,7 @@ pub fn main() !void {
 
     std.os.windows.SetConsoleCtrlHandler(control_signal_handler, true) catch @panic("Failed to set control signal handler");
 
-    write_console("FroggyCMD 🐸!\n");
+    write_console("FroggyCMD v_alpha\n");
 
     var backing = data.BackingData.init();
     var shell = shell_lib.Shell.init(backing.trie_blocks);
@@ -64,7 +64,10 @@ pub fn draw(shell: *shell_lib.Shell) void {
 
     var completion_command: []const u8 = "";
     if (shell.current_completion) |completion| {
-        completion_command = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[1m\x1b[35m{s}\x1b[0m", .{completion}) catch unreachable;
+        // Magenta: 35
+        // Red: 31
+        // Cyan: 36
+        completion_command = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[1m\x1b[36m{s}\x1b[0m", .{completion}) catch unreachable;
     }
 
     // TODO handle setting cursor y pos.
