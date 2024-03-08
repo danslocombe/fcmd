@@ -5,12 +5,12 @@ const windows = @import("windows.zig");
 const lego_trie = @import("datastructures/lego_trie.zig");
 
 const STANDARD_RIGHTS_REQUIRED = 0x000F0000;
-const SECTION_QUERY = @as(c_int, 0x0001);
-const SECTION_MAP_WRITE = @as(c_int, 0x0002);
-const SECTION_MAP_READ = @as(c_int, 0x0004);
-const SECTION_MAP_EXECUTE = @as(c_int, 0x0008);
-const SECTION_EXTEND_SIZE = @as(c_int, 0x0010);
-const SECTION_MAP_EXECUTE_EXPLICIT = @as(c_int, 0x0020);
+const SECTION_QUERY: c_int = 0x0001;
+const SECTION_MAP_WRITE: c_int = 0x0002;
+const SECTION_MAP_READ: c_int = 0x0004;
+const SECTION_MAP_EXECUTE: c_int = 0x0008;
+const SECTION_EXTEND_SIZE: c_int = 0x0010;
+const SECTION_MAP_EXECUTE_EXPLICIT: c_int = 0x0020;
 const FILE_MAP_ALL_ACCESS = ((((STANDARD_RIGHTS_REQUIRED | SECTION_QUERY) | SECTION_MAP_WRITE) | SECTION_MAP_READ) | SECTION_MAP_EXECUTE) | SECTION_EXTEND_SIZE;
 
 const magic_number = [_]u8{ 'f', 'r', 'o', 'g' };
@@ -54,8 +54,7 @@ pub const BackingData = struct {
         }
 
         const size = 64000;
-        //var map_handle = windows.CreateFileMapping(file_handle, null, windows.PAGE_READWRITE, 0, size, "Global\\Blahhh");
-        var map_handle = windows.CreateFileMapping(file_handle, null, windows.PAGE_READWRITE, 0, size, "Blahhh");
+        var map_handle = windows.CreateFileMapping(file_handle, null, windows.PAGE_READWRITE, 0, size, "trie_data");
         if (map_handle == null) {
             var last_error = windows.GetLastError();
             alloc.fmt_panic("CreateFileMapping: Error code {}", .{last_error});
@@ -68,14 +67,10 @@ pub const BackingData = struct {
             alloc.fmt_panic("MapViewOfFile: Error code {}", .{last_error});
         }
 
-        //var map = .{ .ptr = @as(*u8, @ptrCast(map_view.?)), .len = size };
         var map = @as([*]u8, @ptrCast(map_view.?))[0..size];
 
         var map_magic_number = map[0..4];
         var version = &map[4];
-        //var map_alloc: MMFBackedFixedAllocator = undefined;
-        //map_alloc.end_index_ptr = @ptrCast(@alignCast(map.ptr + 8));
-        //map_alloc.map = map[8 + @sizeOf(usize) ..];
 
         var trie_blocks: DumbList(lego_trie.TrieBlock) = undefined;
         trie_blocks.len = @ptrCast(@alignCast(map.ptr + 8));
@@ -134,8 +129,6 @@ pub const MMFBackedFixedAllocator = struct {
         const self: *MMFBackedFixedAllocator = @ptrCast(@alignCast(ctx));
         _ = ra;
         const ptr_align = @as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intCast(log2_ptr_align));
-        //var buffer = self.get_buffer();
-        //var end_index_ptr = self.get_end_index_ptr();
         var buffer = self.map;
         var end_index_ptr = self.end_index_ptr;
         const adjust_off = std.mem.alignPointerOffset(buffer.ptr + end_index_ptr.*, ptr_align) orelse return null;

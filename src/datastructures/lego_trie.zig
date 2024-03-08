@@ -587,6 +587,7 @@ pub const ChildIterator = struct {
     }
 };
 
+// Hack around testing function type inference
 fn test_equal(actual: anytype, expected: @TypeOf(actual)) !void {
     return std.testing.expectEqual(expected, actual);
 }

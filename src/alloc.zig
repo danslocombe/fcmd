@@ -31,15 +31,6 @@ pub fn zeroed(comptime T: type, comptime N: usize) [N]T {
     return xs;
 }
 
-pub fn trued(comptime N: usize) [N]bool {
-    var xs: [N]bool = undefined;
-    for (0..N) |i| {
-        xs[i] = true;
-    }
-
-    return xs;
-}
-
 pub fn defaulted(comptime T: type, comptime N: usize) [N]T {
     var xs: [N]T = undefined;
     for (0..N) |i| {
