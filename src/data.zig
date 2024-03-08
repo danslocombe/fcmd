@@ -26,7 +26,11 @@ pub const BackingData = struct {
     //allocator: MMFBackedFixedAllocator,
 
     pub fn init() BackingData {
-        const path = "v0.fcmd_data";
+        var appdata: []const u8 = windows.get_appdata_path();
+        defer (alloc.gpa.allocator().free(appdata));
+
+        var path: [*c]const u8 = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ appdata, "\\fcmd\\trie.frog" }, 0) catch unreachable;
+
         const GENERIC_READ = 0x80000000;
         const GENERIC_WRITE = 0x40000000;
         var file_handle: ?*anyopaque = windows.CreateFileA(path, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);

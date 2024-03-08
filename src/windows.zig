@@ -21,3 +21,10 @@ pub fn word_is_local_path(word: []const u8) bool {
 
     return file_attributes != import.INVALID_FILE_ATTRIBUTES;
 }
+
+pub fn get_appdata_path() []const u8 {
+    var appdata_literal = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), "APPDATA") catch unreachable;
+    var buffer: [256]u16 = undefined;
+    var len = import.GetEnvironmentVariableW(appdata_literal, &buffer, 256);
+    return std.unicode.utf16leToUtf8Alloc(alloc.gpa.allocator(), buffer[0..len]) catch unreachable;
+}
