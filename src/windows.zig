@@ -14,8 +14,21 @@ pub var g_stdout: *anyopaque = undefined;
 pub var g_stdin: *anyopaque = undefined;
 
 pub fn setup_console() void {
-    init_handles();
+    var stdin = import.GetStdHandle(import.STD_INPUT_HANDLE);
+    if (stdin == null) @panic("Failed to get stdin");
+    g_stdin = stdin.?;
 
+    var stdout = import.GetStdHandle(import.STD_OUTPUT_HANDLE);
+    if (stdout == null) @panic("Failed to get stdin");
+    g_stdout = stdout.?;
+
+    set_console_mode();
+
+    // Add handle for Ctrl + C.
+    std.os.windows.SetConsoleCtrlHandler(control_signal_handler, true) catch @panic("Failed to set control signal handler");
+}
+
+pub fn set_console_mode() void {
     var current_flags: u32 = 0;
     _ = import.GetConsoleMode(g_stdin, &current_flags);
     const ENABLE_WINDOW_INPUT = 0x0008;
@@ -28,18 +41,6 @@ pub fn setup_console() void {
 
     if (import.SetConsoleCP(UTF8Codepage) == 0) @panic("Failed to set Console CodePage");
     if (import.SetConsoleOutputCP(UTF8Codepage) == 0) @panic("Failed to set Console Output CodePage");
-
-    std.os.windows.SetConsoleCtrlHandler(control_signal_handler, true) catch @panic("Failed to set control signal handler");
-}
-
-pub fn init_handles() void {
-    var stdin = import.GetStdHandle(import.STD_INPUT_HANDLE);
-    if (stdin == null) @panic("Failed to get stdin");
-    g_stdin = stdin.?;
-
-    var stdout = import.GetStdHandle(import.STD_OUTPUT_HANDLE);
-    if (stdout == null) @panic("Failed to get stdin");
-    g_stdout = stdout.?;
 }
 
 pub fn word_is_local_path(word: []const u8) bool {

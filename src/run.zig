@@ -1,6 +1,7 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
 const shell = @import("shell.zig");
+const windows = @import("windows.zig");
 
 pub var g_current_running_process_info: ?std.os.windows.PROCESS_INFORMATION = null;
 
@@ -113,8 +114,9 @@ pub fn run_cmd(cmd: []const u8) void {
 
     std.os.windows.CloseHandle(g_current_running_process_info.?.hThread);
     std.os.windows.CloseHandle(g_current_running_process_info.?.hProcess);
-
     g_current_running_process_info = null;
+
+    windows.set_console_mode();
 }
 
 pub fn try_kill_running_process() bool {
