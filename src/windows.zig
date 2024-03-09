@@ -1,7 +1,7 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
-
 const run = @import("run.zig");
+const main = @import("main.zig");
 
 const import = @cImport({
     @cDefine("WIN32_LEAN_AND_MEAN", "1");
@@ -12,6 +12,8 @@ pub usingnamespace import;
 
 pub var g_stdout: *anyopaque = undefined;
 pub var g_stdin: *anyopaque = undefined;
+
+pub var buffered_ctrl_c = false;
 
 pub fn setup_console() void {
     var stdin = import.GetStdHandle(import.STD_INPUT_HANDLE);
@@ -71,15 +73,46 @@ pub fn write_console(cs: []const u8) void {
     std.debug.assert(written == cs.len);
 }
 
+pub fn copy_to_clipboard(s: []const u8) void {
+    if (import.OpenClipboard(null) == 0) {
+        // Failed to open clipboard
+        return;
+    }
+
+    if (import.EmptyClipboard() == 0) @panic("Failed to empty the clipboard");
+
+    var s_utf16: [:0]u16 = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), s) catch unreachable;
+    var data_handle = import.GlobalAlloc(0, (s_utf16.len + 1) * @sizeOf(u16));
+    if (data_handle == null) @panic("GlobalAlloc call failed when trying to copy to the clipboard");
+
+    var allocated: [*]u16 = @ptrCast(@alignCast(import.GlobalLock(data_handle)));
+    @memcpy(allocated, s_utf16);
+    _ = import.SetClipboardData(import.CF_UNICODETEXT, data_handle);
+
+    _ = import.GlobalUnlock(allocated);
+    _ = import.CloseClipboard();
+}
+
 pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(std.os.windows.WINAPI) std.os.windows.BOOL {
     switch (signal) {
-        std.os.windows.CTRL_C_EVENT => {
-            //std.debug.print("Handling CTRL C\n", .{});
-            return if (run.try_kill_running_process()) 1 else 0;
-        },
-        std.os.windows.CTRL_BREAK_EVENT => {
-            //std.debug.print("Handling CTRL BREAK\n", .{});
-            return if (run.try_kill_running_process()) 1 else 0;
+        std.os.windows.CTRL_C_EVENT, std.os.windows.CTRL_BREAK_EVENT => {
+            //return if (run.try_kill_running_process()) 1 else 0;
+            if (run.try_kill_running_process()) {
+                // Ok
+                return 1;
+            } else {
+                buffered_ctrl_c = true;
+
+                // Ugh this is a bit ugly
+                // Is this what we want?
+                // This makes it easy to accidently kill the shell which would be super annoying.
+                // Maybe print a message on how to exit?
+                if (main.g_shell.prompt.highlight != null) {
+                    return 1;
+                } else {
+                    return 0;
+                }
+            }
         },
         std.os.windows.CTRL_CLOSE_EVENT => {
             //std.debug.print("Handling CTRL CLOSE\n", .{});

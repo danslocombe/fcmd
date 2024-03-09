@@ -1,6 +1,7 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
 const input = @import("input.zig");
+const windows = @import("windows.zig");
 
 pub const PromptCursorPos = struct {
     byte_index: usize = 0,
@@ -148,7 +149,26 @@ pub const Prompt = struct {
                     },
                 };
             },
+            .Cut => {
+                if (self.highlight) |_| {
+                    windows.copy_to_clipboard(self.get_highlighted());
+                    self.delete_highlighted();
+                }
+            },
+            .Copy => {
+                if (self.highlight) |_| {
+                    windows.copy_to_clipboard(self.get_highlighted());
+                }
+            },
             else => {},
+        }
+    }
+
+    pub fn get_highlighted(self: *Prompt) []const u8 {
+        if (self.highlight) |highlight| {
+            return self.bs.items[highlight.start_pos.byte_index..highlight.end_pos.byte_index];
+        } else {
+            return "";
         }
     }
 

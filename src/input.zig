@@ -70,6 +70,16 @@ pub fn read_input(input_buffer: *[64]Input, inputs_produced: *usize) bool {
         }
     }
 
+    if (windows.buffered_ctrl_c) {
+        windows.buffered_ctrl_c = false;
+
+        input_buffer[inputs_produced.*] = Input{
+            .Copy = void{},
+        };
+
+        inputs_produced.* += 1;
+    }
+
     return true;
 }
 
@@ -242,6 +252,9 @@ pub const Input = union(enum) {
 
     SelectAll: void,
 
+    Cut: void,
+    Copy: void,
+
     Enter: void,
 
     pub fn try_from_console_input(ci: ConsoleInput) ?Input {
@@ -360,6 +373,11 @@ pub const Input = union(enum) {
         // Ctrl + A
         if (ci.utf8_char.bs[0] == '\x01') {
             return .{ .SelectAll = void{} };
+        }
+
+        // Ctrl + X
+        if (ci.utf8_char.bs[0] == '\x18') {
+            return .{ .Cut = void{} };
         }
 
         return Input{
