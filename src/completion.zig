@@ -5,7 +5,7 @@ const windows = @import("windows.zig");
 
 const lego_trie = @import("datastructures/lego_trie.zig");
 
-pub const GetCompletionFlags = struct {
+pub const GetCompletionFlags = packed struct {
     complete_to_files_from_empty_prefix: bool = false,
 };
 
@@ -46,7 +46,7 @@ pub const CompletionHandler = struct {
 
         var cycle = self.cycle_index;
 
-        if (self.local_history.get_completion(prefix)) |completion| {
+        if (self.local_history.get_completion(prefix, flags)) |completion| {
             if (cycle == 0) {
                 return completion;
             } else {
@@ -54,7 +54,7 @@ pub const CompletionHandler = struct {
             }
         }
 
-        if (self.global_history.get_completion(prefix)) |completion| {
+        if (self.global_history.get_completion(prefix, flags)) |completion| {
             if (cycle == 0) {
                 return completion;
             } else {
@@ -200,8 +200,8 @@ pub const LocalHistoryCompleter = struct {
         self.completer.insert(self.add_prefix(cmd));
     }
 
-    pub fn get_completion(self: *LocalHistoryCompleter, prefix: []const u8) ?[]const u8 {
-        return self.completer.get_completion(self.add_prefix(prefix));
+    pub fn get_completion(self: *LocalHistoryCompleter, prefix: []const u8, flags: GetCompletionFlags) ?[]const u8 {
+        return self.completer.get_completion(self.add_prefix(prefix), flags);
     }
 };
 
@@ -213,9 +213,9 @@ pub const GlobalHistoryCompleter = struct {
         self.completer.insert(with_prefix);
     }
 
-    pub fn get_completion(self: *GlobalHistoryCompleter, prefix: []const u8) ?[]const u8 {
+    pub fn get_completion(self: *GlobalHistoryCompleter, prefix: []const u8, flags: GetCompletionFlags) ?[]const u8 {
         var with_prefix = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ @as([]const u8, "GLOBAL_"), prefix }) catch unreachable;
-        return self.completer.get_completion(with_prefix);
+        return self.completer.get_completion(with_prefix, flags);
     }
 };
 
@@ -231,7 +231,7 @@ pub const HistoryCompleter = struct {
         view.insert(cmd) catch unreachable;
     }
 
-    pub fn get_completion(self: *HistoryCompleter, prefix: []const u8) ?[]const u8 {
+    pub fn get_completion(self: *HistoryCompleter, prefix: []const u8, flags: GetCompletionFlags) ?[]const u8 {
         var view = self.trie.to_view();
         var walker = lego_trie.TrieWalker.init(view, prefix);
         if (walker.walk_to()) {
@@ -239,11 +239,18 @@ pub const HistoryCompleter = struct {
             var extension = walker.extension.slice();
             var end_extension: []const u8 = "";
 
-            if (!walker.reached_leaf) {
+            var add_heuristic_walk = !walker.reached_leaf;
+
+            if (add_heuristic_walk) {
                 end_extension = walker.walk_to_heuristic(alloc.temp_alloc.allocator(), walker.cost);
             }
 
-            if (extension.len == 0 and end_extension.len == 0) {
+            // If we are completing to files we want to discard history completions
+            // that do not match anything.
+            // ie we want to return null here on empty extensions.
+            if (flags.complete_to_files_from_empty_prefix and
+                extension.len == 0 and end_extension.len == 0)
+            {
                 return null;
             }
 
