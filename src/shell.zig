@@ -1,9 +1,9 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
 const input = @import("input.zig");
-const zipper_lib = @import("zipper.zig");
-const Zipper = zipper_lib.Zipper;
-const ZipperCursorPos = zipper_lib.ZipperCursorPos;
+const prompt_lib = @import("prompt.zig");
+const Prompt = prompt_lib.Prompt;
+const PromptCursorPos = prompt_lib.PromptCursorPos;
 const run = @import("run.zig");
 const CompletionHandler = @import("completion.zig").CompletionHandler;
 const data = @import("data.zig");
@@ -14,8 +14,8 @@ const ring_buffer = @import("datastructures/ring_buffer.zig");
 const lego_trie = @import("datastructures/lego_trie.zig");
 
 pub const Shell = struct {
-    prompt: Zipper,
-    partial_complete_prev_cursor_pos: ?ZipperCursorPos = null,
+    prompt: Prompt,
+    partial_complete_prev_cursor_pos: ?PromptCursorPos = null,
 
     history: History,
     completion_handler: CompletionHandler,
@@ -23,7 +23,7 @@ pub const Shell = struct {
 
     pub fn init(trie_blocks: data.DumbList(lego_trie.TrieBlock)) Shell {
         return .{
-            .prompt = Zipper.init(),
+            .prompt = Prompt.init(),
             .history = .{
                 .buffer = ring_buffer.RingBuffer([]const u8).init(256, ""),
             },

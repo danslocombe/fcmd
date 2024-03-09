@@ -13,6 +13,7 @@ pub fn main() !void {
     var backing = data.BackingData.init();
     var shell = shell_lib.Shell.init(backing.trie_blocks);
 
+    shell.draw();
     var buffer: [64]input.Input = undefined;
     var inputs_produced: usize = 0;
     while (input.read_input(&buffer, &inputs_produced)) {

@@ -2,28 +2,28 @@ const std = @import("std");
 const alloc = @import("alloc.zig");
 const input = @import("input.zig");
 
-pub const ZipperCursorPos = struct {
+pub const PromptCursorPos = struct {
     byte_index: usize = 0,
     char_index: usize = 0,
 };
 
-pub const Zipper = struct {
+pub const Prompt = struct {
     bs: std.ArrayList(u8),
-    pos: ZipperCursorPos,
+    pos: PromptCursorPos,
 
-    pub fn init() Zipper {
+    pub fn init() Prompt {
         return .{
             .bs = alloc.new_arraylist(u8),
             .pos = .{},
         };
     }
 
-    pub fn clear(self: *Zipper) void {
+    pub fn clear(self: *Prompt) void {
         self.bs.clearRetainingCapacity();
         self.pos = .{};
     }
 
-    pub fn apply_input(self: *Zipper, in: input.Input) void {
+    pub fn apply_input(self: *Prompt, in: input.Input) void {
         switch (in) {
             .Append => |*c| {
                 var c_slice = c.slice();
@@ -82,7 +82,7 @@ pub const Zipper = struct {
         }
     }
 
-    pub fn move_left(self: *Zipper) ?[]const u8 {
+    pub fn move_left(self: *Prompt) ?[]const u8 {
         // Saturating subtraction
         self.pos.char_index = self.pos.char_index -| 1;
 
@@ -114,7 +114,7 @@ pub const Zipper = struct {
         }
     }
 
-    pub fn move_right(self: *Zipper) ?[]const u8 {
+    pub fn move_right(self: *Prompt) ?[]const u8 {
         var iter = std.unicode.Utf8Iterator{
             .bytes = self.bs.items,
             .i = self.pos.byte_index,
@@ -130,7 +130,7 @@ pub const Zipper = struct {
         return ret;
     }
 
-    pub fn delete(self: *Zipper) ?[]const u8 {
+    pub fn delete(self: *Prompt) ?[]const u8 {
         var prev_byte_index = self.pos.byte_index;
         var ret = self.move_left();
 
@@ -147,47 +147,47 @@ pub const Zipper = struct {
         return ret;
     }
 
-    pub fn move_to_and_clear_end(self: *Zipper, pos: ZipperCursorPos) void {
+    pub fn move_to_and_clear_end(self: *Prompt, pos: PromptCursorPos) void {
         std.debug.assert(self.bs.items.len >= pos.char_index);
         self.pos = pos;
         self.bs.resize(self.pos.byte_index) catch unreachable;
     }
 };
 
-test "zipper move right" {
-    var zipper = Zipper.init();
-    zipper.bs.appendSlice("hi🐸") catch unreachable;
+test "move right" {
+    var prompt = Prompt.init();
+    prompt.bs.appendSlice("hi🐸") catch unreachable;
 
-    try std.testing.expectEqualSlices(u8, "h", zipper.move_right().?);
-    try std.testing.expectEqual(@as(usize, 1), zipper.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 1), zipper.pos.char_index);
-    try std.testing.expectEqualSlices(u8, "i", zipper.move_right().?);
-    try std.testing.expectEqual(@as(usize, 2), zipper.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 2), zipper.pos.char_index);
-    try std.testing.expectEqualSlices(u8, "🐸", zipper.move_right().?);
-    try std.testing.expectEqual(@as(usize, 6), zipper.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 3), zipper.pos.char_index);
-    try std.testing.expectEqual(@as(?[]const u8, null), zipper.move_right());
-    try std.testing.expectEqual(@as(usize, 6), zipper.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 3), zipper.pos.char_index);
+    try std.testing.expectEqualSlices(u8, "h", prompt.move_right().?);
+    try std.testing.expectEqual(@as(usize, 1), prompt.pos.byte_index);
+    try std.testing.expectEqual(@as(usize, 1), prompt.pos.char_index);
+    try std.testing.expectEqualSlices(u8, "i", prompt.move_right().?);
+    try std.testing.expectEqual(@as(usize, 2), prompt.pos.byte_index);
+    try std.testing.expectEqual(@as(usize, 2), prompt.pos.char_index);
+    try std.testing.expectEqualSlices(u8, "🐸", prompt.move_right().?);
+    try std.testing.expectEqual(@as(usize, 6), prompt.pos.byte_index);
+    try std.testing.expectEqual(@as(usize, 3), prompt.pos.char_index);
+    try std.testing.expectEqual(@as(?[]const u8, null), prompt.move_right());
+    try std.testing.expectEqual(@as(usize, 6), prompt.pos.byte_index);
+    try std.testing.expectEqual(@as(usize, 3), prompt.pos.char_index);
 }
 
-test "zipper move left" {
-    var zipper = Zipper.init();
-    zipper.bs.appendSlice("hi🐸") catch unreachable;
-    zipper.pos.byte_index = zipper.bs.items.len;
-    zipper.pos.char_index = 3;
+test "move left" {
+    var prompt = Prompt.init();
+    prompt.bs.appendSlice("hi🐸") catch unreachable;
+    prompt.pos.byte_index = prompt.bs.items.len;
+    prompt.pos.char_index = 3;
 
-    try std.testing.expectEqualSlices(u8, "🐸", zipper.move_left().?);
-    try std.testing.expectEqual(@as(usize, 2), zipper.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 2), zipper.pos.char_index);
-    try std.testing.expectEqualSlices(u8, "i", zipper.move_left().?);
-    try std.testing.expectEqual(@as(usize, 1), zipper.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 1), zipper.pos.char_index);
-    try std.testing.expectEqualSlices(u8, "h", zipper.move_left().?);
-    try std.testing.expectEqual(@as(usize, 0), zipper.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 0), zipper.pos.char_index);
-    try std.testing.expectEqual(@as(?[]const u8, null), zipper.move_left());
-    try std.testing.expectEqual(@as(usize, 0), zipper.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 0), zipper.pos.char_index);
+    try std.testing.expectEqualSlices(u8, "🐸", prompt.move_left().?);
+    try std.testing.expectEqual(@as(usize, 2), prompt.pos.byte_index);
+    try std.testing.expectEqual(@as(usize, 2), prompt.pos.char_index);
+    try std.testing.expectEqualSlices(u8, "i", prompt.move_left().?);
+    try std.testing.expectEqual(@as(usize, 1), prompt.pos.byte_index);
+    try std.testing.expectEqual(@as(usize, 1), prompt.pos.char_index);
+    try std.testing.expectEqualSlices(u8, "h", prompt.move_left().?);
+    try std.testing.expectEqual(@as(usize, 0), prompt.pos.byte_index);
+    try std.testing.expectEqual(@as(usize, 0), prompt.pos.char_index);
+    try std.testing.expectEqual(@as(?[]const u8, null), prompt.move_left());
+    try std.testing.expectEqual(@as(usize, 0), prompt.pos.byte_index);
+    try std.testing.expectEqual(@as(usize, 0), prompt.pos.char_index);
 }
