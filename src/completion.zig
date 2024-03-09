@@ -5,6 +5,10 @@ const windows = @import("windows.zig");
 
 const lego_trie = @import("datastructures/lego_trie.zig");
 
+pub const GetCompletionFlags = struct {
+    complete_to_files_from_empty_prefix: bool = false,
+};
+
 pub const CompletionHandler = struct {
     local_history: LocalHistoryCompleter,
     global_history: GlobalHistoryCompleter,
@@ -34,7 +38,7 @@ pub const CompletionHandler = struct {
         self.directory_completer.clear();
     }
 
-    pub fn get_completion(self: *CompletionHandler, prefix: []const u8) ?[]const u8 {
+    pub fn get_completion(self: *CompletionHandler, prefix: []const u8, flags: GetCompletionFlags) ?[]const u8 {
         // No completions for empty prefix.
         if (prefix.len == 0) {
             return null;
@@ -59,7 +63,7 @@ pub const CompletionHandler = struct {
         }
 
         if (!has_unclosed_quotes(prefix)) {
-            if (self.directory_completer.get_completion(prefix, cycle)) |completion| {
+            if (self.directory_completer.get_completion(prefix, cycle, flags)) |completion| {
                 return completion;
             }
         }
@@ -130,7 +134,7 @@ pub const DirectoryCompleter = struct {
         }
     }
 
-    pub fn get_completion(self: *DirectoryCompleter, prefix: []const u8, p_cycle: usize) ?[]const u8 {
+    pub fn get_completion(self: *DirectoryCompleter, prefix: []const u8, p_cycle: usize, flags: GetCompletionFlags) ?[]const u8 {
         var cycle = p_cycle;
 
         // TODO drop all but final word
@@ -147,6 +151,10 @@ pub const DirectoryCompleter = struct {
         }
 
         var prefix_for_query = last_word;
+
+        if (prefix_for_query.len == 0 and !flags.complete_to_files_from_empty_prefix) {
+            return null;
+        }
 
         var count = std.mem.count(u8, last_word, "/") + std.mem.count(u8, last_word, "\\");
         if (count == 0) {
@@ -235,11 +243,11 @@ pub const HistoryCompleter = struct {
                 end_extension = walker.walk_to_heuristic(alloc.temp_alloc.allocator(), walker.cost);
             }
 
-            //var buffer = alloc.gpa_alloc_idk(u8, extension.len);
-            //@memcpy(buffer, extension);
-            //var buffer = std.fmt.allocPrint(alloc.gpa.allocator(), "{s}{s}  Cost: {d}", .{ extension, end_extension, walker.cost }) catch unreachable;
-            var buffer = std.fmt.allocPrint(alloc.gpa.allocator(), "{s}{s}", .{ extension, end_extension }) catch unreachable;
-            return buffer;
+            if (extension.len == 0 and end_extension.len == 0) {
+                return null;
+            }
+
+            return std.mem.concat(alloc.gpa.allocator(), u8, &.{ extension, end_extension }) catch unreachable;
         }
 
         return null;

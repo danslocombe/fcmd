@@ -94,6 +94,8 @@ pub const Shell = struct {
                     var reverse = command == Command.PartialCompleteReverse;
 
                     if (self.partial_complete_prev_cursor_pos) |pos| {
+                        // User has previously tab completed from somewhere
+                        // Cycle the completion handler and if successful, reset the prompt to the previous state and apply the new completion.
                         if (self.current_completion == null or self.current_completion.?.len == 0) {
                             if (self.current_completion) |cc| {
                                 alloc.gpa.allocator().free(cc);
@@ -105,14 +107,24 @@ pub const Shell = struct {
                                 self.completion_handler.cycle_index += 1;
                             }
 
-                            self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items[0..pos.byte_index]);
+                            self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items[0..pos.byte_index], .{ .complete_to_files_from_empty_prefix = true });
 
-                            // Bit ugly, if we've gone too far back up
+                            // Bit ugly, if we've gone too far, back up
                             if ((self.current_completion == null or self.current_completion.?.len == 0) and !reverse) {
                                 self.completion_handler.cycle_index -|= 1;
                             } else {
                                 self.prompt.move_to_and_clear_end(pos);
                             }
+                        }
+                    } else {
+                        // User has typed something and pressed enter but no completion
+                        // Try and re-trigger completion handler get completions with more aggressive flags
+                        if (self.current_completion == null or self.current_completion.?.len == 0) {
+                            if (self.current_completion) |cc| {
+                                alloc.gpa.allocator().free(cc);
+                            }
+
+                            self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items, .{ .complete_to_files_from_empty_prefix = true });
                         }
                     }
 
@@ -174,7 +186,7 @@ pub const Shell = struct {
             alloc.gpa.allocator().free(cc);
         }
 
-        self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items);
+        self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items, .{});
     }
 
     pub fn draw(self: *Shell) void {
