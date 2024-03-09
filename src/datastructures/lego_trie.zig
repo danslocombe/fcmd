@@ -511,11 +511,10 @@ pub const TrieWalker = struct {
 
             var best_score: u32 = @intCast(BaseCost - best_cost);
             var prev_score = BaseCost - cost;
-            var score_diff = prev_score - best_score;
+            var score_of_ending_exactly_here = prev_score - total_score;
 
             // Stopping heuristic
-            if (score_diff * 3 > best_score) {
-                //if (best_score * 3 < total_score) {
+            if (score_of_ending_exactly_here * 3 > best_score) {
                 break;
             }
 
