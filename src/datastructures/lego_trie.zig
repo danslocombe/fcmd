@@ -257,6 +257,15 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
             return size;
         }
 
+        pub fn sum_children_score(self: *Self) u32 {
+            var sum: u32 = 0;
+            for (0..self.get_child_size()) |i| {
+                sum += BaseCost - self.costs[i];
+            }
+
+            return sum;
+        }
+
         pub fn promote_tall_to_wide(self: *Self, trie: *Trie) WideNodeData {
             // Allocate new
             var replacement = WideNodeData{};
@@ -464,7 +473,13 @@ pub const TrieWalker = struct {
         _ = self;
     }
 
-    pub fn walk_to_end(self: *TrieWalker, allocator: std.mem.Allocator) []const u8 {
+    pub fn walk_to_heuristic(self: *TrieWalker, allocator: std.mem.Allocator, p_cost: u16) []const u8 {
+        var cost = p_cost;
+
+        // Walk down to a level where there is "sufficient ambiguity" about what the user
+        // may be typing
+        // Eg the prefix "gi" may complete to "git" instead of "git status" which is the first
+        // leaf as there are many other leaves with low costs eg "git log"
         var components = std.ArrayList([]const u8).init(alloc.temp_alloc.allocator());
         while (true) {
             var current = self.trie_view.trie.blocks.at(self.trie_view.current_block);
@@ -475,21 +490,42 @@ pub const TrieWalker = struct {
             var str: []const u8 = undefined;
             var is_leaf: bool = undefined;
             var next_block: u30 = undefined;
+            var best_cost: u16 = 0;
+            var total_score: u32 = 0;
 
             if (current.metadata.wide) {
+                total_score = current.node_data.wide.sum_children_score();
+                best_cost = current.node_data.wide.costs[0];
+
                 str = current.node_data.wide.nodes[0].slice();
                 is_leaf = current.node_data.wide.data[0].is_leaf;
                 next_block = current.node_data.wide.data[0].data;
             } else {
+                total_score = current.node_data.tall.sum_children_score();
+                best_cost = current.node_data.tall.costs[0];
+
                 str = current.node_data.tall.nodes[0].slice();
                 is_leaf = current.node_data.tall.data[0].is_leaf;
                 next_block = current.node_data.tall.data[0].data;
             }
 
+            var best_score: u32 = @intCast(BaseCost - best_cost);
+            var prev_score = BaseCost - cost;
+            var score_diff = prev_score - best_score;
+
+            // Stopping heuristic
+            if (score_diff * 3 > best_score) {
+                //if (best_score * 3 < total_score) {
+                break;
+            }
+
+            cost = best_cost;
+
             components.append(str) catch unreachable;
             if (is_leaf) {
                 break;
             }
+
             self.trie_view.current_block = next_block;
         }
 

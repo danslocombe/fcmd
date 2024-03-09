@@ -232,7 +232,7 @@ pub const HistoryCompleter = struct {
             var end_extension: []const u8 = "";
 
             if (!walker.reached_leaf) {
-                end_extension = walker.walk_to_end(alloc.temp_alloc.allocator());
+                end_extension = walker.walk_to_heuristic(alloc.temp_alloc.allocator(), walker.cost);
             }
 
             //var buffer = alloc.gpa_alloc_idk(u8, extension.len);
