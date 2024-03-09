@@ -2,10 +2,15 @@ const std = @import("std");
 const alloc = @import("alloc.zig");
 const input = @import("input.zig");
 const windows = @import("windows.zig");
+const unicode_width = @import("unicode_width.zig");
 
 pub const PromptCursorPos = struct {
+    // The byte position into the array of utf8 chars.
     byte_index: usize = 0,
-    char_index: usize = 0,
+
+    // The "physical" x coordinate when writing out to the screen.
+    // *Not* the codepoint index
+    x: usize = 0,
 };
 
 pub const Highlight = struct {
@@ -37,8 +42,8 @@ pub const Prompt = struct {
         };
 
         var count: usize = 0;
-        while (iter.nextCodepoint()) |_| {
-            count += 1;
+        while (iter.nextCodepointSlice()) |c| {
+            count += unicode_width.get_width_slice(c);
         }
 
         return count;
@@ -71,7 +76,7 @@ pub const Prompt = struct {
                 }
 
                 self.pos.byte_index += c.slice().len;
-                self.pos.char_index += 1;
+                self.pos.x += unicode_width.get_width(c.*);
             },
             .Left => |flags| {
                 _ = self.move_left();
@@ -145,7 +150,7 @@ pub const Prompt = struct {
                     .start_pos = .{},
                     .end_pos = .{
                         .byte_index = self.bs.items.len,
-                        .char_index = self.char_len(),
+                        .x = self.char_len(),
                     },
                 };
             },
@@ -173,14 +178,12 @@ pub const Prompt = struct {
     }
 
     pub fn move_left(self: *Prompt) ?[]const u8 {
-        // Saturating subtraction
-        self.pos.char_index = self.pos.char_index -| 1;
-
         // @SPEED
         // How can we avoid re-iterating?
 
         var prev: ?[]const u8 = null;
         var prev_i: usize = 0;
+        var prev_x: usize = 0;
 
         var iter = std.unicode.Utf8Iterator{
             .bytes = self.bs.items,
@@ -192,10 +195,14 @@ pub const Prompt = struct {
 
             if (iter.i == self.pos.byte_index) {
                 self.pos.byte_index = prev_i;
+                self.pos.x = prev_x;
                 return prev;
             }
 
             prev_i = iter.i;
+            if (prev) |cp_slice| {
+                prev_x += unicode_width.get_width_slice(cp_slice);
+            }
 
             if (prev == null) {
                 // Can happen in case where we are already at the start.
@@ -213,8 +220,8 @@ pub const Prompt = struct {
         var ret = iter.nextCodepointSlice();
         self.pos.byte_index = iter.i;
 
-        if (ret) |_| {
-            self.pos.char_index += 1;
+        if (ret) |c| {
+            self.pos.x += unicode_width.get_width_slice(c);
         }
 
         return ret;
@@ -301,11 +308,13 @@ pub const Prompt = struct {
         if (self.highlight) |*highlight| {
             if (prev_byte_index <= highlight.end_pos.byte_index) {
                 highlight.end_pos.byte_index -= delete_byte_count;
-                highlight.end_pos.char_index -|= 1;
+                // @nocheckin subtract theh correct width
+                highlight.end_pos.x -|= 1;
             }
             if (prev_byte_index <= highlight.start_pos.byte_index) {
                 highlight.start_pos.byte_index -= delete_byte_count;
-                highlight.start_pos.char_index -|= 1;
+                // @nocheckin subtract theh correct width
+                highlight.start_pos.x -|= 1;
             }
         }
 
@@ -313,7 +322,7 @@ pub const Prompt = struct {
     }
 
     pub fn move_to_and_clear_end(self: *Prompt, pos: PromptCursorPos) void {
-        std.debug.assert(self.bs.items.len >= pos.char_index);
+        std.debug.assert(self.bs.items.len >= pos.x);
         self.pos = pos;
         self.bs.resize(self.pos.byte_index) catch unreachable;
     }
@@ -325,34 +334,34 @@ test "move right" {
 
     try std.testing.expectEqualSlices(u8, "h", prompt.move_right().?);
     try std.testing.expectEqual(@as(usize, 1), prompt.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 1), prompt.pos.char_index);
+    try std.testing.expectEqual(@as(usize, 1), prompt.pos.x);
     try std.testing.expectEqualSlices(u8, "i", prompt.move_right().?);
     try std.testing.expectEqual(@as(usize, 2), prompt.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 2), prompt.pos.char_index);
+    try std.testing.expectEqual(@as(usize, 2), prompt.pos.x);
     try std.testing.expectEqualSlices(u8, "🐸", prompt.move_right().?);
     try std.testing.expectEqual(@as(usize, 6), prompt.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 3), prompt.pos.char_index);
+    try std.testing.expectEqual(@as(usize, 3), prompt.pos.x);
     try std.testing.expectEqual(@as(?[]const u8, null), prompt.move_right());
     try std.testing.expectEqual(@as(usize, 6), prompt.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 3), prompt.pos.char_index);
+    try std.testing.expectEqual(@as(usize, 3), prompt.pos.x);
 }
 
 test "move left" {
     var prompt = Prompt.init();
     prompt.bs.appendSlice("hi🐸") catch unreachable;
     prompt.pos.byte_index = prompt.bs.items.len;
-    prompt.pos.char_index = 3;
+    prompt.pos.x = 3;
 
     try std.testing.expectEqualSlices(u8, "🐸", prompt.move_left().?);
     try std.testing.expectEqual(@as(usize, 2), prompt.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 2), prompt.pos.char_index);
+    try std.testing.expectEqual(@as(usize, 2), prompt.pos.x);
     try std.testing.expectEqualSlices(u8, "i", prompt.move_left().?);
     try std.testing.expectEqual(@as(usize, 1), prompt.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 1), prompt.pos.char_index);
+    try std.testing.expectEqual(@as(usize, 1), prompt.pos.x);
     try std.testing.expectEqualSlices(u8, "h", prompt.move_left().?);
     try std.testing.expectEqual(@as(usize, 0), prompt.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 0), prompt.pos.char_index);
+    try std.testing.expectEqual(@as(usize, 0), prompt.pos.x);
     try std.testing.expectEqual(@as(?[]const u8, null), prompt.move_left());
     try std.testing.expectEqual(@as(usize, 0), prompt.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 0), prompt.pos.char_index);
+    try std.testing.expectEqual(@as(usize, 0), prompt.pos.x);
 }

@@ -1,6 +1,1 @@
-Right arrow completes at end of prompt.
-Add kill signal to send to child process
-
-Ctrl+D Ctrl+C handling
-
 help command that dumps out a bunch of info

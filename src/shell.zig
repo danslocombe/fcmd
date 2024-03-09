@@ -215,7 +215,7 @@ pub const Shell = struct {
         }
 
         // TODO handle setting cursor y pos.
-        var cursor_x_pos = built_preprompt.len + self.prompt.pos.char_index + 1;
+        var cursor_x_pos = built_preprompt.len + self.prompt.pos.x + 1;
         var set_cursor_to_prompt_pos = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[{}G", .{cursor_x_pos}) catch unreachable;
 
         var commands = [_][]const u8{

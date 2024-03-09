@@ -387,7 +387,7 @@ pub const Input = union(enum) {
 };
 
 pub const Utf8Char = struct {
-    bs: [8]u8 = alloc.zeroed(u8, 8),
+    bs: [32]u8 = alloc.zeroed(u8, 32),
 
     pub fn slice(self: *const Utf8Char) []const u8 {
         var len = std.unicode.utf8ByteSequenceLength(self.bs[0]) catch @panic("Error getting utf8char len");
@@ -395,6 +395,6 @@ pub const Utf8Char = struct {
     }
 
     pub fn zero(self: Utf8Char) bool {
-        return std.mem.readIntNative(u64, &self.bs) == 0;
+        return std.mem.allEqual(u8, &self.bs, 0);
     }
 };
