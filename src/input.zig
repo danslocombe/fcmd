@@ -96,37 +96,81 @@ pub fn try_parse_console_inputs_as_escape_sequence(cis: []const ConsoleInput) ?I
     if (cis[0].utf8_char.bs[0] == '\x1b' and cis[1].utf8_char.bs[0] == '[') {
         if (cis[2].utf8_char.bs[0] == 'D') {
             return Input{
-                .Left = void{},
+                .Left = .{},
+            };
+        }
+
+        // Shift left
+        if (escape_sequence_equal("1;2D", cis[2..])) {
+            return Input{
+                .Left = .{ .highlight = true },
             };
         }
 
         if (cis[2].utf8_char.bs[0] == 'C') {
             return Input{
-                .Right = void{},
+                .Right = .{},
+            };
+        }
+
+        // Shift right
+        if (escape_sequence_equal("1;2C", cis[2..])) {
+            return Input{
+                .Right = .{ .highlight = true },
             };
         }
 
         if (cis[2].utf8_char.bs[0] == 'H') {
             return Input{
-                .GotoStart = void{},
+                .GotoStart = .{},
+            };
+        }
+
+        // Shift home
+        if (escape_sequence_equal("1;2H", cis[2..])) {
+            return Input{
+                .GotoStart = .{ .highlight = true },
             };
         }
 
         if (cis[2].utf8_char.bs[0] == 'F') {
             return Input{
-                .GotoEnd = void{},
+                .GotoEnd = .{},
             };
         }
 
+        // Shift end
+        if (escape_sequence_equal("1;2F", cis[2..])) {
+            return Input{
+                .GotoEnd = .{ .highlight = true },
+            };
+        }
+
+        // Ctrl left
         if (escape_sequence_equal("1;5D", cis[2..])) {
             return Input{
-                .BlockLeft = void{},
+                .BlockLeft = .{},
             };
         }
 
+        // Ctrl shift left
+        if (escape_sequence_equal("1;6D", cis[2..])) {
+            return Input{
+                .BlockLeft = .{ .highlight = true },
+            };
+        }
+
+        // Ctrl right
         if (escape_sequence_equal("1;5C", cis[2..])) {
             return Input{
-                .BlockRight = void{},
+                .BlockRight = .{},
+            };
+        }
+
+        // Ctrl shift right
+        if (escape_sequence_equal("1;6C", cis[2..])) {
+            return Input{
+                .BlockRight = .{ .highlight = true },
             };
         }
 
@@ -167,22 +211,25 @@ pub const ConsoleInput = struct {
     modifier_keys: u32,
 };
 
+pub const CursorMovementFlags = packed struct {
+    highlight: bool = false,
+};
+
 pub const Input = union(enum) {
     Append: Utf8Char,
-    Left: void,
-    BlockLeft: void,
-    Right: void,
-    BlockRight: void,
 
-    GotoStart: void,
-    GotoEnd: void,
+    Left: CursorMovementFlags,
+    BlockLeft: CursorMovementFlags,
+    Right: CursorMovementFlags,
+    BlockRight: CursorMovementFlags,
+
+    GotoStart: CursorMovementFlags,
+    GotoEnd: CursorMovementFlags,
 
     Delete: void,
     DeleteBlock: void,
 
     Exit: void,
-    Home: void,
-    End: void,
 
     Up: void,
     Down: void,
@@ -192,6 +239,8 @@ pub const Input = union(enum) {
     Complete: void,
     PartialComplete: void,
     PartialCompleteReverse: void,
+
+    SelectAll: void,
 
     Enter: void,
 
@@ -216,28 +265,28 @@ pub const Input = union(enum) {
         // Left arrow
         if (ci.key == 0x25) {
             if (has_ctrl) {
-                return .{ .BlockLeft = void{} };
+                return .{ .BlockLeft = .{} };
             } else {
-                return .{ .Left = void{} };
+                return .{ .Left = .{} };
             }
         }
 
         // Right arrow
         if (ci.key == 0x27) {
             if (has_ctrl) {
-                return .{ .BlockRight = void{} };
+                return .{ .BlockRight = .{} };
             } else {
-                return .{ .Right = void{} };
+                return .{ .Right = .{} };
             }
         }
 
         // Home
         if (ci.key == 0x24) {
-            return .{ .GotoStart = void{} };
+            return .{ .GotoStart = .{} };
         }
         // End
         if (ci.key == 0x23) {
-            return .{ .GotoEnd = void{} };
+            return .{ .GotoEnd = .{} };
         }
 
         if (ci.utf8_char.zero()) {
@@ -306,6 +355,11 @@ pub const Input = union(enum) {
         // Backspace char
         if (ci.utf8_char.bs[0] == '\x08') {
             return .{ .DeleteBlock = void{} };
+        }
+
+        // Ctrl + A
+        if (ci.utf8_char.bs[0] == '\x01') {
+            return .{ .SelectAll = void{} };
         }
 
         return Input{

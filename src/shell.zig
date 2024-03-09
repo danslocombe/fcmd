@@ -199,6 +199,12 @@ pub const Shell = struct {
         defer (alloc.gpa.allocator().free(built_preprompt));
 
         var prompt_buffer: []const u8 = self.prompt.bs.items;
+        if (self.prompt.highlight) |highlight| {
+            var before_highlight = prompt_buffer[0..highlight.start_pos.byte_index];
+            var highlighted = prompt_buffer[highlight.start_pos.byte_index..highlight.end_pos.byte_index];
+            var after_highlight = prompt_buffer[highlight.end_pos.byte_index..];
+            prompt_buffer = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "{s}\x1b[42m{s}\x1b[0m{s}", .{ before_highlight, highlighted, after_highlight }) catch unreachable;
+        }
 
         var completion_command: []const u8 = "";
         if (self.current_completion) |completion| {

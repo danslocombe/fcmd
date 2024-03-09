@@ -116,6 +116,8 @@ pub fn run_cmd(cmd: []const u8) void {
     std.os.windows.CloseHandle(g_current_running_process_info.?.hProcess);
     g_current_running_process_info = null;
 
+    // Reset the console mode as some commands like `git log` can remove virtual console mode, which
+    // breaks input handling.
     windows.set_console_mode();
 }
 
