@@ -82,7 +82,7 @@ pub const DirectoryCompleter = struct {
             self.rel_dir = null;
         }
 
-        if (self.filenames) |xs| {
+        if (self.filenames) |*xs| {
             xs.deinit();
             self.filenames = null;
         }
@@ -100,7 +100,7 @@ pub const DirectoryCompleter = struct {
             self.rel_dir = null;
         }
 
-        if (self.filenames) |xs| {
+        if (self.filenames) |*xs| {
             xs.deinit();
             self.filenames = null;
         }
