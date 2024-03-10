@@ -10,6 +10,7 @@ pub const FroggyCommand = union(enum) {
     Echo: []const u8,
     Ls: void,
     Cls: void,
+    Exit: void,
 
     pub fn execute(self: FroggyCommand) void {
         switch (self) {
@@ -22,13 +23,20 @@ pub const FroggyCommand = union(enum) {
                 };
             },
             .Echo => |e| {
-                std.debug.print("{s}\n", .{e});
+                var with_newline = std.mem.concat(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ e, "\n" }) catch unreachable;
+                windows.write_console(with_newline);
             },
             .Ls => {
                 run_cmd("dir");
             },
             .Cls => {
                 run_cmd("cls");
+            },
+            .Exit => {
+                windows.write_console("Goodbye");
+
+                // TODO reset the console state to what it was before
+                std.os.windows.kernel32.ExitProcess(0);
             },
         }
     }
@@ -51,6 +59,12 @@ pub const FroggyCommand = union(enum) {
         if (std.mem.eql(u8, splits.first, "ls")) {
             return .{
                 .Ls = void{},
+            };
+        }
+
+        if (std.mem.eql(u8, splits.first, "exit")) {
+            return .{
+                .Exit = void{},
             };
         }
 

@@ -95,11 +95,10 @@ pub fn copy_to_clipboard(s: []const u8) void {
 
 pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(std.os.windows.WINAPI) std.os.windows.BOOL {
     switch (signal) {
-        std.os.windows.CTRL_C_EVENT, std.os.windows.CTRL_BREAK_EVENT => {
+        std.os.windows.CTRL_C_EVENT, std.os.windows.CTRL_BREAK_EVENT, std.os.windows.CTRL_CLOSE_EVENT => {
             //return if (run.try_kill_running_process()) 1 else 0;
             if (run.try_kill_running_process()) {
                 // Ok
-                return 1;
             } else {
                 buffered_ctrl_c = true;
 
@@ -110,13 +109,11 @@ pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(std.os.wind
                 if (main.g_shell.prompt.highlight != null) {
                     return 1;
                 } else {
-                    return 0;
+                    write_console("\nTo exit fcmd use the command 'exit'\n");
                 }
             }
-        },
-        std.os.windows.CTRL_CLOSE_EVENT => {
-            //std.debug.print("Handling CTRL CLOSE\n", .{});
-            return if (run.try_kill_running_process()) 1 else 0;
+
+            return 1;
         },
         else => {
             // We don't handle any other events
