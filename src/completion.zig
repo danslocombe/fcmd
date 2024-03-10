@@ -284,6 +284,11 @@ fn is_global_command_heuristic(command: []const u8) bool {
     var words_iter = std.mem.tokenizeAny(u8, command, " ");
 
     while (words_iter.next()) |word| {
+        if (std.mem.eql(u8, word, ".") or std.mem.eql(u8, word, "..")) {
+            // Special cases, technically refer to current directoy, but also applicable anywhere.
+            continue;
+        }
+
         if (windows.word_is_local_path(word)) {
             return false;
         }
