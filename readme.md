@@ -1,8 +1,10 @@
 # FCMD
 #### Autocomplete and quality of life for windows command line
 
+![usage](https://raw.githubusercontent.com/danslocombe/zcmd/main/capture.gif)
+
 Features:
-- Smart autocomplete based on your local and global command history and environment. [1]
+- Smart autocomplete based on your local and global command history and environment. [^1]
 - Text highlighting with Shift + navigation keys
 - Quality of life keyboard shortcuts inspired by unix shells
 - Path "compression" of the current directory in the prompt keeping it readable
@@ -17,7 +19,7 @@ Shortcuts:
 - Ctrl + C copies highlighted text when there is no running program, otherwise sends a kill signal as usual
 - Ctrl + X cuts highlighted text.
 
- [1] Here local history is the set of commands run within a given directory and global history is all the commands run anywhere that do not have a relative path as an argument.
+ [^1]: Here local history is the set of commands run within a given directory and global history is all the commands run anywhere that do not have a relative path as an argument.
 
 ## Requirements to actually release  
 
