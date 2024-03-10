@@ -1,1 +1,0 @@
-help command that dumps out a bunch of info
