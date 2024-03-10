@@ -112,7 +112,8 @@ pub const DirectoryCompleter = struct {
         // TODO handle absolute paths
         var cwd = std.fs.cwd();
         var dir: std.fs.IterableDir = undefined;
-        if (cwd.openIterableDir(rel_dir, .{})) |rdir| {
+
+        if (windows.CopyPastedFromStdLibWithAdditionalSafety.openIterableDir(cwd, rel_dir, .{})) |rdir| {
             dir = rdir;
         } else |_| {
             return;

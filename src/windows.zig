@@ -124,3 +124,84 @@ pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(std.os.wind
         },
     }
 }
+
+// Hacky
+// In the standard lib there are functions that can panic on bad input.
+// We want are using these functions to check if a given string is a path
+// so it needs to handle the "worst of all inputs"
+// Copy paste the std lib code and map the panic to an error.
+pub const CopyPastedFromStdLibWithAdditionalSafety = struct {
+    const Dir = std.fs.Dir;
+    const OpenDirOptions = Dir.OpenDirOptions;
+    const OpenError = Dir.OpenError;
+    const This = @This();
+    pub fn openIterableDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!std.fs.IterableDir {
+        const sub_path_w = try std.os.windows.sliceToPrefixedFileW(sub_path);
+        return std.fs.IterableDir{ .dir = try This.openDirW(self, sub_path_w.span().ptr, args, true) };
+    }
+
+    pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions, iterable: bool) OpenError!Dir {
+        const w = std.os.windows;
+        // TODO remove some of these flags if args.access_sub_paths is false
+        const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
+            w.SYNCHRONIZE | w.FILE_TRAVERSE;
+        const flags: u32 = if (iterable) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
+        var dir = try This.openDirAccessMaskW(self, sub_path_w, flags, args.no_follow);
+        return dir;
+    }
+
+    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, no_follow: bool) OpenError!Dir {
+        const w = std.os.windows;
+
+        var result = Dir{
+            .fd = undefined,
+        };
+
+        const path_len_bytes = @as(u16, @intCast(std.mem.sliceTo(sub_path_w, 0).len * 2));
+        var nt_name = w.UNICODE_STRING{
+            .Length = path_len_bytes,
+            .MaximumLength = path_len_bytes,
+            .Buffer = @constCast(sub_path_w),
+        };
+        var attr = w.OBJECT_ATTRIBUTES{
+            .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
+            .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else self.fd,
+            .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+            .ObjectName = &nt_name,
+            .SecurityDescriptor = null,
+            .SecurityQualityOfService = null,
+        };
+        const open_reparse_point: w.DWORD = if (no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
+        var io: w.IO_STATUS_BLOCK = undefined;
+        const rc = w.ntdll.NtCreateFile(
+            &result.fd,
+            access_mask,
+            &attr,
+            &io,
+            null,
+            0,
+            w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
+            w.FILE_OPEN,
+            w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
+            null,
+            0,
+        );
+        switch (rc) {
+            .SUCCESS => return result,
+
+            // This is the change, because we are trying to navigate to arbitrary user commands this was triggering on urls
+            // Replace the unreachable here with an error
+            //.OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_INVALID => return error.NotDir,
+
+            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+            .NOT_A_DIRECTORY => return error.NotDir,
+            // This can happen if the directory has 'List folder contents' permission set to 'Deny'
+            // and the directory is trying to be opened for iteration.
+            .ACCESS_DENIED => return error.AccessDenied,
+            .INVALID_PARAMETER => unreachable,
+            else => return w.unexpectedStatus(rc),
+        }
+    }
+};
