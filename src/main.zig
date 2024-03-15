@@ -12,8 +12,8 @@ pub fn main() !void {
     windows.setup_console();
     windows.write_console("FroggyCMD v_alpha\n");
 
-    var backing = data.BackingData.init();
-    g_shell = Shell.init(backing.trie_blocks);
+    data.BackingData.init();
+    g_shell = Shell.init(&data.g_backing_data.trie_blocks);
 
     g_shell.draw();
     var buffer: [64]input.Input = undefined;

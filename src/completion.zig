@@ -16,7 +16,7 @@ pub const CompletionHandler = struct {
 
     cycle_index: usize = 0,
 
-    pub fn init(trie_blocks: data.DumbList(lego_trie.TrieBlock)) CompletionHandler {
+    pub fn init(trie_blocks: *data.DumbList(lego_trie.TrieBlock)) CompletionHandler {
         var base = HistoryCompleter.init(trie_blocks);
         return .{
             .global_history = .{ .completer = base },
@@ -223,7 +223,7 @@ pub const GlobalHistoryCompleter = struct {
 pub const HistoryCompleter = struct {
     trie: lego_trie.Trie,
 
-    pub fn init(trie_blocks: data.DumbList(lego_trie.TrieBlock)) HistoryCompleter {
+    pub fn init(trie_blocks: *data.DumbList(lego_trie.TrieBlock)) HistoryCompleter {
         return .{ .trie = lego_trie.Trie.init(trie_blocks) };
     }
 

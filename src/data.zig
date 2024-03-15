@@ -14,7 +14,11 @@ const SECTION_MAP_EXECUTE_EXPLICIT: c_int = 0x0020;
 const FILE_MAP_ALL_ACCESS = ((((STANDARD_RIGHTS_REQUIRED | SECTION_QUERY) | SECTION_MAP_WRITE) | SECTION_MAP_READ) | SECTION_MAP_EXECUTE) | SECTION_EXTEND_SIZE;
 
 const magic_number = [_]u8{ 'f', 'r', 'o', 'g' };
-const current_version: u8 = 1;
+const current_version: u8 = 2;
+
+pub var g_backing_data: BackingData = undefined;
+
+const initial_size = 1024;
 
 pub const BackingData = struct {
     file_handle: *anyopaque,
@@ -26,7 +30,7 @@ pub const BackingData = struct {
 
     //allocator: MMFBackedFixedAllocator,
 
-    pub fn init() BackingData {
+    pub fn init() void {
         var appdata: []const u8 = windows.get_appdata_path();
         defer (alloc.gpa.allocator().free(appdata));
 
@@ -53,32 +57,53 @@ pub const BackingData = struct {
             alloc.fmt_panic("CreateFileA: Error code {}", .{last_error});
         }
 
-        const size = 64000;
-        var map_handle = windows.CreateFileMapping(file_handle, null, windows.PAGE_READWRITE, 0, size, "trie_data");
+        g_backing_data.file_handle = file_handle.?;
+
+        // Do a small initial load to just read out the size.
+        resize_map(true, initial_size);
+
+        var actual_initial_size = initial_size + g_backing_data.trie_blocks.len.* * @sizeOf(lego_trie.TrieBlock);
+        resize_map(false, actual_initial_size);
+    }
+
+    pub fn resize_map(initial_setup: bool, new_size: usize) void {
+        //std.debug.print("Resizing map to {}\n", .{new_size});
+
+        if (!initial_setup) {
+            std.os.windows.CloseHandle(g_backing_data.map_pointer);
+            //std.os.windows.CloseHandle(g_backing_data.map_view_pointer);
+        }
+
+        var map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(new_size), "trie_data");
         if (map_handle == null) {
             var last_error = windows.GetLastError();
             alloc.fmt_panic("CreateFileMapping: Error code {}", .{last_error});
         }
 
-        var map_view = windows.MapViewOfFile(map_handle, FILE_MAP_ALL_ACCESS, 0, 0, size);
+        g_backing_data.map_pointer = map_handle.?;
+
+        var map_view = windows.MapViewOfFile(map_handle, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(new_size));
 
         if (map_view == null) {
             var last_error = windows.GetLastError();
             alloc.fmt_panic("MapViewOfFile: Error code {}", .{last_error});
         }
 
-        var map = @as([*]u8, @ptrCast(map_view.?))[0..size];
+        g_backing_data.map_view_pointer = map_view.?;
+
+        var map = @as([*]u8, @ptrCast(g_backing_data.map_view_pointer))[0..new_size];
 
         var map_magic_number = map[0..4];
         var version = &map[4];
 
-        var trie_blocks: DumbList(lego_trie.TrieBlock) = undefined;
-        trie_blocks.len = @ptrCast(@alignCast(map.ptr + 8));
+        g_backing_data.trie_blocks = undefined;
+        g_backing_data.trie_blocks.len = @ptrCast(@alignCast(map.ptr + 8));
         const start = 8 + @sizeOf(usize);
         var trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
         var end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
         var trieblock_bytes = map[start .. start + end];
-        trie_blocks.map = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, trieblock_bytes));
+        g_backing_data.trie_blocks.map = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, trieblock_bytes));
+        //std.debug.print("Initialised trie_blocks with len = {} map capacity = {}\n", .{ g_backing_data.trie_blocks.len.*, g_backing_data.trie_blocks.map.len });
 
         if (std.mem.allEqual(u8, map_magic_number, 0)) {
             std.debug.print("Resetting state...\n", .{});
@@ -88,23 +113,16 @@ pub const BackingData = struct {
             //map_alloc.end_index_ptr.* = 0;
         } else if (std.mem.eql(u8, map_magic_number, &magic_number)) {
             if (version.* == current_version) {
-                // All good
-                std.debug.print("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, trie_blocks.len.* });
+                if (initial_setup) {
+                    // All good
+                    std.debug.print("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, g_backing_data.trie_blocks.len.* });
+                }
             } else {
                 alloc.fmt_panic("Unexpected version '{}' expected {}", .{ version.*, current_version });
             }
         } else {
-            alloc.fmt_panic("Unexpected magic number on file {s} '{s}'", .{ path, map_magic_number });
+            alloc.fmt_panic("Unexpected magic number on file '{s}'", .{map_magic_number});
         }
-
-        return .{
-            .file_handle = file_handle.?,
-            .map_pointer = map_handle.?,
-            .map_view_pointer = map_view.?,
-            .map = map,
-            //.allocator = map_alloc,
-            .trie_blocks = trie_blocks,
-        };
     }
 };
 
@@ -178,7 +196,13 @@ pub fn DumbList(comptime T: type) type {
         len: *usize,
         map: []T,
 
-        pub fn append(self: *const Self, x: T) void {
+        pub fn append(self: *Self, x: T) void {
+            if (self.len.* >= self.map.len) {
+                // Resize
+                var new_size = initial_size + self.map.len * 2 * @sizeOf(lego_trie.TrieBlock);
+                BackingData.resize_map(false, new_size);
+            }
+
             self.map[self.len.*] = x;
             self.len.* += 1;
         }

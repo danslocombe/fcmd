@@ -5,12 +5,12 @@ const data = @import("../data.zig");
 
 const InlineString = @import("inline_string.zig").InlineString;
 
-const BaseCost = 1000;
+const BaseCost = 65535;
 
 const TallStringLen = 22;
-const TallNodeLen = 2;
+const TallNodeLen = 1;
 const WideStringLen = 1;
-const WideNodeLen = 8;
+const WideNodeLen = 4;
 
 pub const TrieBlock = struct {
     const NextAndBlockshape = packed struct {
@@ -20,8 +20,8 @@ pub const TrieBlock = struct {
 
     metadata: NextAndBlockshape,
     node_data: extern union {
-        wide: NodeData(1, 8),
-        tall: NodeData(TallStringLen, 2),
+        wide: NodeData(WideStringLen, WideNodeLen),
+        tall: NodeData(TallStringLen, TallNodeLen),
     },
 
     pub fn empty_tall() TrieBlock {
@@ -241,9 +241,9 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
     return extern struct {
         const Self = @This();
 
-        nodes: [NodeCount]InlineString(StringLen) = alloc.defaulted(InlineString(StringLen), NodeCount),
         data: [NodeCount]NodeDataWithIsLeaf = alloc.defaulted(NodeDataWithIsLeaf, NodeCount),
         costs: [NodeCount]u16 = alloc.zeroed(u16, NodeCount),
+        nodes: [NodeCount]InlineString(StringLen) = alloc.defaulted(InlineString(StringLen), NodeCount),
 
         pub fn get_child_size(self: Self) usize {
             var size: usize = 0;
@@ -567,7 +567,7 @@ pub const TrieWalker = struct {
 };
 
 pub const Trie = struct {
-    blocks: data_lib.DumbList(TrieBlock),
+    blocks: *data_lib.DumbList(TrieBlock),
 
     const root = 0;
     //tails : std.ArrayList([] const u8),
@@ -579,7 +579,7 @@ pub const Trie = struct {
         };
     }
 
-    pub fn init(trie_blocks: data_lib.DumbList(TrieBlock)) Trie {
+    pub fn init(trie_blocks: *data_lib.DumbList(TrieBlock)) Trie {
         if (trie_blocks.len.* == 0) {
             trie_blocks.append(TrieBlock.empty_tall());
         }

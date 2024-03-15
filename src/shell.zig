@@ -21,7 +21,7 @@ pub const Shell = struct {
     completion_handler: CompletionHandler,
     current_completion: ?[]const u8 = null,
 
-    pub fn init(trie_blocks: data.DumbList(lego_trie.TrieBlock)) Shell {
+    pub fn init(trie_blocks: *data.DumbList(lego_trie.TrieBlock)) Shell {
         return .{
             .prompt = Prompt.init(),
             .history = .{
