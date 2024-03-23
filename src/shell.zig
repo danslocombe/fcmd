@@ -5,7 +5,8 @@ const prompt_lib = @import("prompt.zig");
 const Prompt = prompt_lib.Prompt;
 const PromptCursorPos = prompt_lib.PromptCursorPos;
 const run = @import("run.zig");
-const CompletionHandler = @import("completion.zig").CompletionHandler;
+const completion_lib = @import("completion.zig");
+const CompletionHandler = completion_lib.CompletionHandler;
 const data = @import("data.zig");
 const windows = @import("windows.zig");
 const preprompt = @import("preprompt.zig");
@@ -186,7 +187,17 @@ pub const Shell = struct {
             alloc.gpa.allocator().free(cc);
         }
 
-        self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items, .{});
+        var next_completion_flags = completion_lib.GetCompletionFlags{};
+        if (run.FroggyCommand.try_get_froggy_command(self.prompt.bs.items)) |froggy| {
+            switch (froggy) {
+                .Cd => {
+                    next_completion_flags.complete_to_directories_not_files = true;
+                },
+                else => {},
+            }
+        }
+
+        self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items, next_completion_flags);
     }
 
     pub fn draw(self: *Shell) void {

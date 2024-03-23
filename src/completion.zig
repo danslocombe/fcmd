@@ -7,6 +7,7 @@ const lego_trie = @import("datastructures/lego_trie.zig");
 
 pub const GetCompletionFlags = packed struct {
     complete_to_files_from_empty_prefix: bool = false,
+    complete_to_directories_not_files: bool = false,
 };
 
 pub const CompletionHandler = struct {
@@ -73,8 +74,13 @@ pub const CompletionHandler = struct {
 };
 
 pub const DirectoryCompleter = struct {
+    pub const FileInfo = struct {
+        name: []const u8,
+        is_dir: bool,
+    };
+
     rel_dir: ?[]const u8 = null,
-    filenames: ?std.ArrayList([]const u8) = null,
+    files: ?std.ArrayList(FileInfo) = null,
 
     pub fn clear(self: *DirectoryCompleter) void {
         if (self.rel_dir) |rd| {
@@ -82,9 +88,9 @@ pub const DirectoryCompleter = struct {
             self.rel_dir = null;
         }
 
-        if (self.filenames) |*xs| {
+        if (self.files) |*xs| {
             xs.deinit();
-            self.filenames = null;
+            self.files = null;
         }
     }
 
@@ -100,9 +106,9 @@ pub const DirectoryCompleter = struct {
             self.rel_dir = null;
         }
 
-        if (self.filenames) |*xs| {
+        if (self.files) |*xs| {
             xs.deinit();
-            self.filenames = null;
+            self.files = null;
         }
 
         self.rel_dir = alloc.copy_slice_to_gpa(rel_dir);
@@ -120,13 +126,17 @@ pub const DirectoryCompleter = struct {
         }
 
         defer (dir.close());
-        self.filenames = alloc.new_arraylist([]const u8);
+        self.files = alloc.new_arraylist(FileInfo);
 
         var iter = dir.iterate();
         while (iter.next()) |m_file| {
             if (m_file) |file| {
                 //std.debug.print("Found '{s}'\n", .{file.name});
-                self.filenames.?.append(alloc.copy_slice_to_gpa(file.name)) catch unreachable;
+                self.files.?.append(.{
+                    .name = alloc.copy_slice_to_gpa(file.name),
+                    // TODO This overtriggers
+                    .is_dir = file.kind != std.fs.File.Kind.file,
+                }) catch unreachable;
             } else {
                 break;
             }
@@ -167,15 +177,19 @@ pub const DirectoryCompleter = struct {
             self.regenerate(path);
         }
 
-        if (self.filenames) |xs| {
+        if (self.files) |xs| {
             for (xs.items) |x| {
-                if (std.mem.startsWith(u8, x, prefix_for_query)) {
+                if (std.mem.startsWith(u8, x.name, prefix_for_query)) {
+                    if (flags.complete_to_directories_not_files and !x.is_dir) {
+                        continue;
+                    }
+
                     if (cycle > 0) {
                         cycle -|= 1;
                         continue;
                     }
 
-                    return alloc.copy_slice_to_gpa(x[prefix_for_query.len..]);
+                    return alloc.copy_slice_to_gpa(x.name[prefix_for_query.len..]);
                 }
             }
         }
@@ -270,6 +284,7 @@ fn has_unclosed_quotes(xs: []const u8) bool {
         if (x == '"') {
             double_count += 1;
         }
+        // TODO writing "don't" or similar triggers unclosed quotes, probably want to check for whitespace on the prev char
         if (x == '\'') {
             single_count += 1;
         }
