@@ -1,6 +1,7 @@
 const std = @import("std");
 const alloc = @import("alloc.zig");
 const windows = @import("windows.zig");
+const log = @import("log.zig");
 
 const lego_trie = @import("datastructures/lego_trie.zig");
 
@@ -67,14 +68,15 @@ pub const BackingData = struct {
     }
 
     pub fn resize_map(initial_setup: bool, new_size: usize) void {
-        //std.debug.print("Resizing map to {}\n", .{new_size});
+        log.log_debug("Resizing map to {}\n", new_size);
 
         if (!initial_setup) {
             std.os.windows.CloseHandle(g_backing_data.map_pointer);
             //std.os.windows.CloseHandle(g_backing_data.map_view_pointer);
         }
 
-        var map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(new_size), "trie_data");
+        //var map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(new_size), "trie_data");
+        var map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(new_size), null);
         if (map_handle == null) {
             var last_error = windows.GetLastError();
             alloc.fmt_panic("CreateFileMapping: Error code {}", .{last_error});
