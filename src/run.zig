@@ -12,7 +12,7 @@ pub const FroggyCommand = union(enum) {
     Cls: void,
     Exit: void,
 
-    pub fn execute(self: FroggyCommand) void {
+    pub fn execute(self: FroggyCommand) RunResult {
         switch (self) {
             .Cd => |cd| {
                 // Same number of bytes should be enough space
@@ -20,23 +20,28 @@ pub const FroggyCommand = union(enum) {
                 _ = std.unicode.utf8ToUtf16Le(utf16_buffer, cd) catch unreachable;
                 std.os.windows.SetCurrentDirectory(utf16_buffer) catch |err| {
                     std.debug.print("CD Error {}\n", .{err});
+                    return .{ .add_to_history = false };
                 };
+
+                return .{};
             },
             .Echo => |e| {
                 var with_newline = std.mem.concat(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ e, "\n" }) catch unreachable;
                 windows.write_console(with_newline);
+                return .{};
             },
             .Ls => {
-                run_cmd("dir");
+                return run_cmd("dir");
             },
             .Cls => {
-                run_cmd("cls");
+                return run_cmd("cls");
             },
             .Exit => {
                 windows.write_console("Goodbye");
 
                 // TODO reset the console state to what it was before
                 std.os.windows.kernel32.ExitProcess(0);
+                unreachable;
             },
         }
     }
@@ -87,7 +92,7 @@ fn split_first_word(xs: []const u8) struct { first: []const u8, rest: []const u8
     return .{ .first = xs, .rest = "" };
 }
 
-pub fn run_cmd(cmd: []const u8) void {
+pub fn run_cmd(cmd: []const u8) RunResult {
     //std.debug.print("Running command {s}\n", .{cmd});
     var command = std.fmt.allocPrintZ(alloc.temp_alloc.allocator(), "cmd /C {s}", .{cmd}) catch unreachable;
     var cmd_buf = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), command) catch unreachable;
@@ -121,7 +126,7 @@ pub fn run_cmd(cmd: []const u8) void {
     std.os.windows.CreateProcessW(null, cmd_buf.ptr, null, null, 1, flags, null, null, &startup_info, &g_current_running_process_info.?) catch |err| {
         g_current_running_process_info = null;
         std.debug.print("Error! Unable to run command '{s}', CreateProcessW error {}\n", .{ cmd, err });
-        return;
+        return .{ .add_to_history = false };
     };
 
     std.os.windows.WaitForSingleObject(g_current_running_process_info.?.hThread, std.os.windows.INFINITE) catch unreachable;
@@ -133,6 +138,8 @@ pub fn run_cmd(cmd: []const u8) void {
     // Reset the console mode as some commands like `git log` can remove virtual console mode, which
     // breaks input handling.
     windows.set_console_mode();
+
+    return .{};
 }
 
 pub fn try_kill_running_process() bool {
@@ -143,3 +150,7 @@ pub fn try_kill_running_process() bool {
 
     return false;
 }
+
+pub const RunResult = struct {
+    add_to_history: bool = true,
+};

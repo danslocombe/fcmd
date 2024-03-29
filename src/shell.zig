@@ -41,15 +41,20 @@ pub const Shell = struct {
                     // Handle this nicely
                     std.debug.print("\n", .{});
 
+                    var run_result = run.RunResult{};
                     if (run.FroggyCommand.try_get_froggy_command(cmd)) |froggy| {
-                        froggy.execute();
+                        run_result = froggy.execute();
                     } else {
-                        run.run_cmd(cmd);
                         // Run command
+                        run_result = run.run_cmd(cmd);
                     }
 
                     self.history.push(cmd);
-                    self.completion_handler.update(cmd);
+
+                    if (run_result.add_to_history) {
+                        self.completion_handler.update(cmd);
+                    }
+
                     if (self.completion_handler.local_history.cwd_path) |cwd| {
                         alloc.gpa.allocator().free(cwd);
                     }
@@ -169,7 +174,7 @@ pub const Shell = struct {
                 .Cls => {
                     // We love hackin'
                     var cls = run.FroggyCommand{ .Cls = void{} };
-                    cls.execute();
+                    _ = cls.execute();
                 },
                 else => {
                     // TODO
