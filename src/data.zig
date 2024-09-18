@@ -19,7 +19,7 @@ const current_version: u8 = 2;
 
 pub var g_backing_data: BackingData = undefined;
 
-const initial_size = 1024;
+const initial_size = 1024 * 1024;
 
 pub const BackingData = struct {
     file_handle: *anyopaque,
@@ -63,8 +63,9 @@ pub const BackingData = struct {
         // Do a small initial load to just read out the size.
         resize_map(true, initial_size);
 
-        var actual_initial_size = initial_size + g_backing_data.trie_blocks.len.* * @sizeOf(lego_trie.TrieBlock);
-        resize_map(false, actual_initial_size);
+        // HACK, while working on remapping issue just fix to initial size.
+        //var actual_initial_size = initial_size + g_backing_data.trie_blocks.len.* * @sizeOf(lego_trie.TrieBlock);
+        //resize_map(false, actual_initial_size);
     }
 
     pub fn resize_map(initial_setup: bool, new_size: usize) void {
