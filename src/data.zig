@@ -75,8 +75,8 @@ pub const BackingData = struct {
             //std.os.windows.CloseHandle(g_backing_data.map_view_pointer);
         }
 
-        //var map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(new_size), "trie_data");
-        var map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(new_size), null);
+        var map_name: [*c]const u8 = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ "Local\\", "trie_data" }, 0) catch unreachable;
+        var map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(new_size), map_name);
         if (map_handle == null) {
             var last_error = windows.GetLastError();
             alloc.fmt_panic("CreateFileMapping: Error code {}", .{last_error});

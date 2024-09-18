@@ -13,8 +13,10 @@ pub fn read_input(input_buffer: *[64]Input, inputs_produced: *usize) bool {
     }
 
     // Convert windows api records to console inputs
-    var console_input_buffer: [64]ConsoleInput = undefined;
-    var console_inputs_produced: usize = 0;
+
+    // Use an arraylist instead of a static buffer as
+    // this can get large if there is a long line copy/pasted.
+    var console_input_buffer = std.ArrayList(ConsoleInput).init(alloc.temp_alloc.allocator());
 
     // Keep a buffer for multi u16 utf codepoints
     var buffered_utf16_chars: [4]u16 = alloc.zeroed(u16, 4);
@@ -47,22 +49,19 @@ pub fn read_input(input_buffer: *[64]Input, inputs_produced: *usize) bool {
                 .modifier_keys = key_event.dwControlKeyState,
             };
 
-            console_input_buffer[console_inputs_produced] = ci;
-            console_inputs_produced += 1;
+            console_input_buffer.append(ci) catch unreachable;
         }
     }
-
-    var console_inputs = console_input_buffer[0..console_inputs_produced];
 
     // Try and parse out virtual terminal escape sequences into a single command
     //
     // TODO can we have escape sequences mixed in with other inputs?
     // If so we need to greedily try and pull escape sequnces
-    if (try_parse_console_inputs_as_escape_sequence(console_inputs)) |input| {
+    if (try_parse_console_inputs_as_escape_sequence(console_input_buffer.items)) |input| {
         input_buffer[0] = input;
         inputs_produced.* = 1;
     } else {
-        for (console_inputs) |ci| {
+        for (console_input_buffer.items) |ci| {
             if (Input.try_from_console_input(ci)) |input| {
                 input_buffer[inputs_produced.*] = input;
                 inputs_produced.* += 1;

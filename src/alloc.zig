@@ -40,7 +40,7 @@ pub fn defaulted(comptime T: type, comptime N: usize) [N]T {
     return xs;
 }
 
-pub fn fmt_panic(comptime f: []const u8, xs: anytype) void {
+pub fn fmt_panic(comptime f: []const u8, xs: anytype) noreturn {
     var s = std.fmt.allocPrint(gpa.allocator(), f, xs) catch unreachable;
     @panic(s);
 }
