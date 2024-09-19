@@ -36,8 +36,10 @@ pub var g_reload_event: *anyopaque = undefined;
 pub var g_hack_we_are_the_process_requesting_an_unload: bool = false;
 pub var g_cross_process_semaphore: *anyopaque = undefined;
 
+pub var g_filepath: [*c]const u8 = "";
+
 pub const BackingData = struct {
-    file_handle: *anyopaque,
+    file_handle: ?*anyopaque,
     map_pointer: ?*anyopaque,
     map_view_pointer: *anyopaque,
     map: []u8,
@@ -88,18 +90,7 @@ pub const BackingData = struct {
             }
         };
 
-        var path: [*c]const u8 = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ fcmd_appdata_dir, "\\trie.frog" }, 0) catch unreachable;
-
-        const GENERIC_READ = 0x80000000;
-        const GENERIC_WRITE = 0x40000000;
-        var file_handle: ?*anyopaque = windows.CreateFileA(path, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
-
-        if (file_handle == null) {
-            var last_error = windows.GetLastError();
-            alloc.fmt_panic("CreateFileA: Error code {}", .{last_error});
-        }
-
-        g_backing_data.file_handle = file_handle.?;
+        g_filepath = std.mem.concatWithSentinel(alloc.gpa.allocator(), u8, &[_][]const u8{ fcmd_appdata_dir, "\\trie.frog" }, 0) catch unreachable;
 
         {
             const manually_reset = 1;
@@ -124,7 +115,7 @@ pub const BackingData = struct {
             g_reload_event = get_event_response.?;
         }
 
-        ensure_other_processes_have_released_handle();
+        //ensure_other_processes_have_released_handle();
 
         // Do a small initial load to just read out the size.
         open_map(null);
@@ -132,7 +123,7 @@ pub const BackingData = struct {
         open_map(@intCast(g_backing_data.size_in_bytes_ptr.*));
 
         // @Reliability add defer on error for this or a crash will block all others.
-        signal_other_processes_can_reaquire_handle();
+        //signal_other_processes_can_reaquire_handle();
 
         var thread = std.Thread.spawn(.{}, background_unloader_loop, .{}) catch @panic("Could not start background thread");
         _ = thread;
@@ -147,19 +138,43 @@ pub const BackingData = struct {
             g_backing_data.map_pointer = null;
         }
 
-        //var map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
-        var map_name = alloc.tmp_for_c_introp("fcmd_trie_data");
-        var map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
-        if (map_handle == null) {
-            var last_error = windows.GetLastError();
-            alloc.fmt_panic("CreateFileMapping: Error code {}", .{last_error});
-        }
+        //var map_name = alloc.tmp_for_c_introp("Global\\fcmd_trie_data");
+        var map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
 
-        g_backing_data.map_pointer = map_handle.?;
+        // Try and open
+        var m_open_mapping_result = windows.OpenFileMappingA(FILE_MAP_ALL_ACCESS, 0, map_name);
+        if (m_open_mapping_result) |open_mapping_result| {
+            log.log_debug("Opened existing file mapping!\n", .{});
+            g_backing_data.map_pointer = open_mapping_result;
+            // Use existing
+        } else {
+            log.log_debug("Could not open file mapping, creating new..\n", .{});
+            // Create file mapping
+            if (g_backing_data.file_handle == null) {
+                const GENERIC_READ = 0x80000000;
+                const GENERIC_WRITE = 0x40000000;
+                var file_handle: ?*anyopaque = windows.CreateFileA(g_filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
+
+                if (file_handle == null) {
+                    var last_error = windows.GetLastError();
+                    alloc.fmt_panic("CreateFileA: Error code {}", .{last_error});
+                }
+
+                g_backing_data.file_handle = file_handle.?;
+            }
+
+            var map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
+            if (map_handle == null) {
+                var last_error = windows.GetLastError();
+                alloc.fmt_panic("CreateFileMapping: Error code {}", .{last_error});
+            }
+
+            g_backing_data.map_pointer = map_handle.?;
+        }
 
         // @Reliability switch to MapViewOfFile3 to guarentee alignment
         // https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-mapviewoffile3
-        var map_view = windows.MapViewOfFile(map_handle, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(size));
+        var map_view = windows.MapViewOfFile(g_backing_data.map_pointer.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(size));
 
         if (map_view == null) {
             var last_error = windows.GetLastError();
