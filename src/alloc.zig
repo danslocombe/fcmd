@@ -50,3 +50,9 @@ pub fn copy_slice_to_gpa(s: []const u8) []const u8 {
     @memcpy(copy, s);
     return copy;
 }
+
+pub fn tmp_for_c_introp(s: []const u8) [:0]const u8 {
+    var copy = temp_alloc.allocator().allocSentinel(u8, s.len, 0) catch unreachable;
+    @memcpy(copy, s);
+    return copy;
+}

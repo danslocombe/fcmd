@@ -9,7 +9,7 @@ pub fn build_preprompt() []const u8 {
     const desired_len = 40;
     var compressed = compress_path(filename, desired_len);
 
-    var ret = std.mem.concat(alloc.gpa.allocator(), u8, &.{ compressed, ">>> " }) catch unreachable;
+    var ret = std.mem.concat(alloc.gpa.allocator(), u8, &.{ compressed, "-> " }) catch unreachable;
     return ret;
 }
 

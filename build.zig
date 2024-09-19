@@ -47,6 +47,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    exe_check.linkLibC();
     const check = b.step("check", "Check if project compiles");
     check.dependOn(&exe_check.step);
 }
