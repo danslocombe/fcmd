@@ -115,11 +115,11 @@ pub const BackingData = struct {
             g_reload_event = get_event_response.?;
         }
 
+        // @Reliability do we need to require exclusivity here?
         //ensure_other_processes_have_released_handle();
 
         // Do a small initial load to just read out the size.
         open_map(null);
-        //var actual_initial_size = initial_size + g_backing_data.trie_blocks.len.* * @sizeOf(lego_trie.TrieBlock);
         open_map(@intCast(g_backing_data.size_in_bytes_ptr.*));
 
         // @Reliability add defer on error for this or a crash will block all others.
@@ -138,7 +138,6 @@ pub const BackingData = struct {
             g_backing_data.map_pointer = null;
         }
 
-        //var map_name = alloc.tmp_for_c_introp("Global\\fcmd_trie_data");
         var map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
 
         // Try and open
@@ -197,7 +196,6 @@ pub const BackingData = struct {
         var trieblock_bytes = map[start .. start + end];
 
         g_backing_data.trie_blocks.map = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, @volatileCast(trieblock_bytes)));
-        //g_backing_data.trie_blocks.map = @alignCast(@ptrCast(trieblock_bytes));
 
         var magic_equal = true;
         var magic_all_zero = true;
@@ -382,17 +380,6 @@ pub fn ensure_other_processes_have_released_handle() void {
             std.time.sleep(1 * 1000 * 1000);
         }
     }
-
-    //if (windows.ReleaseSemaphore(g_cross_process_semaphore, 1, null) == 0) {
-    //    var last_error = windows.GetLastError();
-    //    alloc.fmt_panic("Failed to release semaphore, Error {}", .{last_error});
-    //}
-
-    //windows.WaitForSingleObject()
-
-    // Send message to other processes.
-
-    // Wait for semaphore to go to zero
 }
 
 pub fn signal_other_processes_can_reaquire_handle() void {
@@ -429,7 +416,7 @@ pub fn background_unloader_loop() void {
 
             // @Hack sleep here to avoid churn
             // 10ms
-            std.time.sleep(100 * 1000 * 1000);
+            std.time.sleep(10 * 1000 * 1000);
             continue;
         }
 
