@@ -514,7 +514,7 @@ pub const TrieWalker = struct {
             var score_of_ending_exactly_here = prev_score - total_score;
 
             // Stopping heuristic
-            if (score_of_ending_exactly_here * 3 > best_score) {
+            if (@as(f32, @floatFromInt(score_of_ending_exactly_here)) * 1.8 > @as(f32, @floatFromInt(best_score))) {
                 break;
             }
 
