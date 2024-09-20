@@ -206,8 +206,7 @@ pub fn try_parse_console_inputs_as_escape_sequence(cis: []const ConsoleInput) ?I
             }
 
             var full = std.mem.join(alloc.gpa.allocator(), " ", chars[0..(cis.len - 2)]) catch unreachable;
-            alloc.fmt_panic("Unknown escape sequence len: {}, start: ESC [ {s}", .{ cis.len, full });
-            @panic("AHHHH");
+            std.debug.print("Warning! Unknown escape sequence Len: {}, Start: ESC [ {s}", .{ cis.len, full });
         }
     }
 

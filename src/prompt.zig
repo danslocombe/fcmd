@@ -4,6 +4,8 @@ const input = @import("input.zig");
 const windows = @import("windows.zig");
 const unicode_width = @import("unicode_width.zig");
 
+pub const block_stop_characters: []const u8 = " /\\";
+
 pub const PromptCursorPos = struct {
     // The byte position into the array of utf8 chars.
     byte_index: usize = 0,
@@ -87,29 +89,56 @@ pub const Prompt = struct {
                 self.update_highlighting_after_move(prev_pos, flags);
             },
             .BlockLeft => |flags| {
-                var moved_nonspace = false;
+                var hit_block_stop_char = false;
                 while (self.move_left()) |x| {
-                    // Also need to split on / and \
-                    if (moved_nonspace and std.mem.eql(u8, x, " ")) {
-                        // Overshot, move back once.
-                        _ = self.move_right();
-                        break;
+                    var x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
+                    if (hit_block_stop_char) {
+                        if (x_is_stop_char) {
+                            // Continue moving over stop characters.
+                            continue;
+                        } else {
+                            // Overshot, move back once
+                            _ = self.move_right();
+                            break;
+                        }
                     } else {
-                        moved_nonspace = true;
+                        if (x_is_stop_char) {
+                            // First stop character
+                            hit_block_stop_char = true;
+                            continue;
+                        } else {
+                            // Non stop character and we havent reached one yet
+                            // carry on.
+                            continue;
+                        }
                     }
                 }
 
                 self.update_highlighting_after_move(prev_pos, flags);
             },
             .BlockRight => |flags| {
-                var moved_nonspace = false;
+                var hit_block_stop_char = false;
                 while (self.move_right()) |x| {
-                    if (moved_nonspace and std.mem.eql(u8, x, " ")) {
-                        // Overshot, move back once.
-                        _ = self.move_left();
-                        break;
+                    var x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
+                    if (hit_block_stop_char) {
+                        if (x_is_stop_char) {
+                            // Continue moving over stop characters.
+                            continue;
+                        } else {
+                            // Overshot, move back once
+                            _ = self.move_left();
+                            break;
+                        }
                     } else {
-                        moved_nonspace = true;
+                        if (x_is_stop_char) {
+                            // First stop character
+                            hit_block_stop_char = true;
+                            continue;
+                        } else {
+                            // Non stop character and we havent reached one yet
+                            // carry on.
+                            continue;
+                        }
                     }
                 }
 
@@ -137,12 +166,10 @@ pub const Prompt = struct {
                     return;
                 }
 
-                const delete_block_stop_characters: []const u8 = " /\\";
-                var hit_a_delete_block_stop_char = false;
-
+                var hit_block_stop_char = false;
                 while (self.delete()) |x| {
-                    var x_is_stop_char = std.mem.containsAtLeast(u8, delete_block_stop_characters, 1, x);
-                    if (hit_a_delete_block_stop_char) {
+                    var x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
+                    if (hit_block_stop_char) {
                         if (x_is_stop_char) {
                             // Continue chomping stop characters.
                             continue;
@@ -158,7 +185,7 @@ pub const Prompt = struct {
                     } else {
                         if (x_is_stop_char) {
                             // First stop character
-                            hit_a_delete_block_stop_char = true;
+                            hit_block_stop_char = true;
                             continue;
                         } else {
                             // Non stop character and we havent reached one yet
