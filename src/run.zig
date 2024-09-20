@@ -131,9 +131,7 @@ pub fn run_cmd(cmd: []const u8) RunResult {
 
     std.os.windows.WaitForSingleObject(g_current_running_process_info.?.hThread, std.os.windows.INFINITE) catch unreachable;
 
-    std.os.windows.CloseHandle(g_current_running_process_info.?.hThread);
-    std.os.windows.CloseHandle(g_current_running_process_info.?.hProcess);
-    g_current_running_process_info = null;
+    cleanup_process_handles();
 
     // Reset the console mode as some commands like `git log` can remove virtual console mode, which
     // breaks input handling.
@@ -142,9 +140,18 @@ pub fn run_cmd(cmd: []const u8) RunResult {
     return .{};
 }
 
+pub fn cleanup_process_handles() void {
+    if (g_current_running_process_info) |process_info| {
+        std.os.windows.CloseHandle(process_info.hThread);
+        std.os.windows.CloseHandle(process_info.hProcess);
+        g_current_running_process_info = null;
+    }
+}
+
 pub fn try_kill_running_process() bool {
     if (g_current_running_process_info) |current_running_process| {
         std.os.windows.TerminateProcess(current_running_process.hProcess, 100) catch {};
+        cleanup_process_handles();
         return true;
     }
 

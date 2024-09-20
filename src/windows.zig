@@ -96,7 +96,7 @@ pub fn copy_to_clipboard(s: []const u8) void {
 pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(std.os.windows.WINAPI) std.os.windows.BOOL {
     switch (signal) {
         std.os.windows.CTRL_C_EVENT, std.os.windows.CTRL_BREAK_EVENT, std.os.windows.CTRL_CLOSE_EVENT => {
-            //return if (run.try_kill_running_process()) 1 else 0;
+            //write_console("\nCtrl C input read\n");
             if (run.try_kill_running_process()) {
                 // Ok
             } else {
