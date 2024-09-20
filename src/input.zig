@@ -2,9 +2,7 @@ const std = @import("std");
 const alloc = @import("alloc.zig");
 const windows = @import("windows.zig");
 
-pub fn read_input(input_buffer: *[64]Input, inputs_produced: *usize) bool {
-    inputs_produced.* = 0;
-
+pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
     // Read from windows api
     var record_buffer: [128]windows.INPUT_RECORD = undefined;
     var records_read: u32 = 0;
@@ -58,13 +56,11 @@ pub fn read_input(input_buffer: *[64]Input, inputs_produced: *usize) bool {
     // TODO can we have escape sequences mixed in with other inputs?
     // If so we need to greedily try and pull escape sequnces
     if (try_parse_console_inputs_as_escape_sequence(console_input_buffer.items)) |input| {
-        input_buffer[0] = input;
-        inputs_produced.* = 1;
+        input_buffer.append(input) catch unreachable;
     } else {
         for (console_input_buffer.items) |ci| {
             if (Input.try_from_console_input(ci)) |input| {
-                input_buffer[inputs_produced.*] = input;
-                inputs_produced.* += 1;
+                input_buffer.append(input) catch unreachable;
             }
         }
     }
@@ -72,11 +68,9 @@ pub fn read_input(input_buffer: *[64]Input, inputs_produced: *usize) bool {
     if (windows.buffered_ctrl_c) {
         windows.buffered_ctrl_c = false;
 
-        input_buffer[inputs_produced.*] = Input{
+        input_buffer.append(Input{
             .Copy = void{},
-        };
-
-        inputs_produced.* += 1;
+        }) catch unreachable;
     }
 
     return true;

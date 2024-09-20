@@ -27,16 +27,19 @@ pub fn main() !void {
     g_shell = Shell.init(&data.g_backing_data.trie_blocks);
 
     g_shell.draw();
-    var buffer: [64]input.Input = undefined;
-    var inputs_produced: usize = 0;
-    while (input.read_input(&buffer, &inputs_produced)) {
+
+    // Instead of a static buffer we need a resizable list as copy/paste can produce a lot of inputs.
+    var buffer = std.ArrayList(input.Input).init(alloc.gpa.allocator());
+    while (input.read_input(&buffer)) {
         data.acquire_local_mutex();
-        for (0..inputs_produced) |i| {
-            g_shell.apply_input(buffer[i]);
+        for (buffer.items) |in| {
+            g_shell.apply_input(in);
         }
 
         g_shell.draw();
-        alloc.clear_temp_alloc();
         data.release_local_mutex();
+
+        alloc.clear_temp_alloc();
+        buffer.clearRetainingCapacity();
     }
 }
