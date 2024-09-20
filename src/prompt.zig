@@ -137,9 +137,34 @@ pub const Prompt = struct {
                     return;
                 }
 
+                const delete_block_stop_characters: []const u8 = " /\\";
+                var hit_a_delete_block_stop_char = false;
+
                 while (self.delete()) |x| {
-                    if (std.mem.eql(u8, x, " ")) {
-                        break;
+                    var x_is_stop_char = std.mem.containsAtLeast(u8, delete_block_stop_characters, 1, x);
+                    if (hit_a_delete_block_stop_char) {
+                        if (x_is_stop_char) {
+                            // Continue chomping stop characters.
+                            continue;
+                        } else {
+                            // Ok need to stop now
+                            // Gone one too far
+                            // Push it back on
+                            self.apply_input(input.Input{
+                                .Append = input.Utf8Char.from_slice(x),
+                            });
+                            break;
+                        }
+                    } else {
+                        if (x_is_stop_char) {
+                            // First stop character
+                            hit_a_delete_block_stop_char = true;
+                            continue;
+                        } else {
+                            // Non stop character and we havent reached one yet
+                            // carry on.
+                            continue;
+                        }
                     }
                 }
             },

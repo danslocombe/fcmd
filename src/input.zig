@@ -388,6 +388,13 @@ pub const Input = union(enum) {
 pub const Utf8Char = struct {
     bs: [32]u8 = alloc.zeroed(u8, 32),
 
+    pub fn from_slice(xs: []const u8) Utf8Char {
+        std.debug.assert(xs.len < 32);
+        var char = Utf8Char{};
+        @memcpy(char.bs[0..xs.len], xs);
+        return char;
+    }
+
     pub fn slice(self: *const Utf8Char) []const u8 {
         var len = std.unicode.utf8ByteSequenceLength(self.bs[0]) catch @panic("Error getting utf8char len");
         return self.bs[0..@intCast(len)];
