@@ -97,8 +97,9 @@ pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(std.os.wind
     switch (signal) {
         std.os.windows.CTRL_C_EVENT, std.os.windows.CTRL_BREAK_EVENT, std.os.windows.CTRL_CLOSE_EVENT => {
             //write_console("\nCtrl C input read\n");
-            if (run.try_kill_running_process()) {
-                // Ok
+            if (run.try_interupt_running_process()) {
+                // We have passed the interupt downstream to the running program.
+                // Let it handle it.
             } else {
                 buffered_ctrl_c = true;
 

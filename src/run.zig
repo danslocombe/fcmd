@@ -2,6 +2,7 @@ const std = @import("std");
 const alloc = @import("alloc.zig");
 const shell = @import("shell.zig");
 const windows = @import("windows.zig");
+const log = @import("log.zig");
 
 pub var g_current_running_process_info: ?std.os.windows.PROCESS_INFORMATION = null;
 
@@ -148,10 +149,13 @@ pub fn cleanup_process_handles() void {
     }
 }
 
-pub fn try_kill_running_process() bool {
+pub fn try_interupt_running_process() bool {
     if (g_current_running_process_info) |current_running_process| {
-        std.os.windows.TerminateProcess(current_running_process.hProcess, 100) catch {};
-        cleanup_process_handles();
+        const CTRL_BREAK_EVENT = 1;
+        if (windows.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, current_running_process.dwProcessId) == 0) {
+            var err = windows.GetLastError();
+            log.log_info("Failed to send ctrl event to running process. Last error {}", .{err});
+        }
         return true;
     }
 

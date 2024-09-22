@@ -3,6 +3,14 @@ const std = @import("std");
 pub var debug_log_enabled: bool = false;
 
 pub fn log_debug(comptime s: []const u8, args: anytype) void {
+    if (!debug_log_enabled) {
+        return;
+    }
+
+    log_info(s, args);
+}
+
+pub fn log_info(comptime s: []const u8, args: anytype) void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
     if (args_type_info == .Struct) {
