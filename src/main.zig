@@ -11,7 +11,6 @@ pub var g_shell: Shell = undefined;
 
 pub fn main() !void {
     var args = std.process.argsAlloc(alloc.gpa.allocator()) catch unreachable;
-    std.debug.print("Arg count {}\n", .{args.len});
     var state_dir_override: ?[]const u8 = null;
     if (args.len > 1 and std.mem.eql(u8, args[1], "--debug")) {
         std.debug.print("Running in debug mode..\n", .{});
@@ -20,7 +19,7 @@ pub fn main() !void {
     }
 
     windows.setup_console();
-    windows.write_console("FroggyCMD v_alpha\n");
+    windows.write_console("Fcmd v0.01\n");
 
     data.BackingData.init(state_dir_override);
 

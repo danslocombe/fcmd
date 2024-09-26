@@ -211,14 +211,14 @@ pub const BackingData = struct {
 
         if (magic_all_zero) {
             // Empty, assume new file
-            std.debug.print("No data in the state. Resetting ...\n", .{});
+            log.log_info("No data in the state. Resetting ...\n", .{});
             @memcpy(map_magic_number, &magic_number);
             version.* = current_version;
             g_backing_data.size_in_bytes_ptr.* = @intCast(size);
         } else if (magic_equal) {
             if (version.* == current_version) {
-                std.debug.print("Successfully read existing state, {} bytes\n", .{g_backing_data.size_in_bytes_ptr.*});
-                std.debug.print("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, g_backing_data.trie_blocks.len.* });
+                log.log_debug("Successfully read existing state, {} bytes\n", .{g_backing_data.size_in_bytes_ptr.*});
+                log.log_debug("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, g_backing_data.trie_blocks.len.* });
             } else {
                 alloc.fmt_panic("Unexpected version '{}' expected {}", .{ version.*, current_version });
             }
