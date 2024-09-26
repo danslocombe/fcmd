@@ -38,16 +38,10 @@ pub const Shell = struct {
                 .Run => {
                     var cmd = self.prompt.bs.items;
 
-                    // Handle this nicely
+                    // @TODO Handle this nicely
                     std.debug.print("\n", .{});
 
-                    var run_result = run.RunResult{};
-                    if (run.FroggyCommand.try_get_froggy_command(cmd)) |froggy| {
-                        run_result = froggy.execute();
-                    } else {
-                        // Run command
-                        run_result = run.run_cmd(cmd);
-                    }
+                    var run_result = run.run(cmd);
 
                     self.history.push(cmd);
 

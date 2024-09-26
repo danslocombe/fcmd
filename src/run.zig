@@ -6,6 +6,14 @@ const log = @import("log.zig");
 
 pub var g_current_running_process_info: ?std.os.windows.PROCESS_INFORMATION = null;
 
+pub fn run(cmd: []const u8) RunResult {
+    if (FroggyCommand.try_get_froggy_command(cmd)) |froggy| {
+        return froggy.execute();
+    } else {
+        return run_cmd(cmd);
+    }
+}
+
 pub const FroggyCommand = union(enum) {
     Cd: []const u8,
     Echo: []const u8,
@@ -93,6 +101,18 @@ fn split_first_word(xs: []const u8) struct { first: []const u8, rest: []const u8
     return .{ .first = xs, .rest = "" };
 }
 
+pub fn hack_run_async(cmd: []const u8) bool {
+    var trimmed = std.mem.trim(u8, cmd, " ");
+    var internal_space_count = std.mem.count(u8, trimmed, " ");
+
+    if (internal_space_count == 0 and std.mem.endsWith(u8, trimmed, ".sln")) {
+        // @Hack if you directly invoke a .sln file open in the background
+        return true;
+    }
+
+    return false;
+}
+
 pub fn run_cmd(cmd: []const u8) RunResult {
     //std.debug.print("Running command {s}\n", .{cmd});
     var command = std.fmt.allocPrintZ(alloc.temp_alloc.allocator(), "cmd /C {s}", .{cmd}) catch unreachable;
@@ -130,7 +150,9 @@ pub fn run_cmd(cmd: []const u8) RunResult {
         return .{ .add_to_history = false };
     };
 
-    std.os.windows.WaitForSingleObject(g_current_running_process_info.?.hThread, std.os.windows.INFINITE) catch unreachable;
+    if (!hack_run_async(cmd)) {
+        std.os.windows.WaitForSingleObject(g_current_running_process_info.?.hThread, std.os.windows.INFINITE) catch unreachable;
+    }
 
     cleanup_process_handles();
 
