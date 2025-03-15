@@ -5,6 +5,7 @@ const data = @import("../data.zig");
 
 const InlineString = @import("inline_string.zig").InlineString;
 
+// u16::max - 1
 const BaseCost = 65535;
 
 const TallStringLen = 22;
@@ -135,7 +136,7 @@ pub const TrieBlock = struct {
         // Sort children
         // Bubble sort was the easiest to implement
         // I'm so sorry
-        // @Speed.
+        // @Speed @Perf.
         var total_count: usize = 0;
         var i_iter = ChildIterator{ .block = self, .trie = trie };
         while (i_iter.next()) {
@@ -418,6 +419,102 @@ pub const StepResult = struct {
 pub const TrieView = struct {
     trie: *Trie,
     current_block: u32 = 0,
+
+    pub fn verify(self: *TrieView) void {
+        var file = std.fs.cwd().createFile("test.log", .{}) catch unreachable;
+
+        var first = true;
+
+        // Breadth first iterator, dump out
+        var stack: [128]u32 = undefined;
+        var stack_len: usize = 0;
+
+        stack[0] = self.current_block;
+        stack_len += 1;
+
+        while (stack_len > 0) {
+            var popped = stack[stack_len - 1];
+            stack_len -= 1;
+
+            var stack_len_at_start = stack_len;
+
+            var cur = popped;
+            while (first or cur != 0) {
+                first = false;
+
+                var block = self.trie.blocks.at(cur);
+                if (block.metadata.wide) {
+                    var len = block.node_data.wide.get_child_size();
+                    _ = file.write(alloc.temp_format("{} Wide, Count {}\n", .{ cur, len })) catch unreachable;
+                    for (0..len) |i| {
+                        var d_data = block.node_data.wide.data[i];
+                        var cost = block.node_data.wide.costs[i];
+                        var s_data = block.node_data.wide.nodes[i];
+
+                        if (d_data.exists) {
+                            for (0..stack_len_at_start) |_| {
+                                _ = file.write(" ") catch unreachable;
+                            }
+                            _ = file.write(alloc.temp_format("{} ({}) [leaf: {}] [data: {}]- {s}\n", .{ cost, BaseCost - cost, d_data.is_leaf, d_data.data, s_data.slice() })) catch unreachable;
+                        }
+                        //
+                    }
+
+                    for (0..len) |ii| {
+                        var i = len - 1 - ii;
+                        var d_data = block.node_data.wide.data[i];
+
+                        if (d_data.exists) {
+                            if (!d_data.is_leaf) {
+                                _ = file.write(alloc.temp_format("i={} Pushing {}\n", .{ i, d_data.data })) catch unreachable;
+                                stack[stack_len] = @as(u32, @intCast(d_data.data));
+                                stack_len += 1;
+                            }
+                        }
+                        //
+                    }
+                    //
+                } else {
+                    var len = block.node_data.tall.get_child_size();
+                    _ = file.write(alloc.temp_format("{} Tall, Count {}\n", .{ cur, len })) catch unreachable;
+                    for (0..len) |i| {
+                        var d_data = block.node_data.tall.data[i];
+                        var cost = block.node_data.tall.costs[i];
+                        var s_data = block.node_data.tall.nodes[i];
+
+                        if (d_data.exists) {
+                            for (0..stack_len_at_start) |_| {
+                                _ = file.write(" ") catch unreachable;
+                            }
+                            _ = file.write(alloc.temp_format("{} ({}) [leaf: {}] [data: {}]- {s}\n", .{ cost, BaseCost - cost, d_data.is_leaf, d_data.data, s_data.slice() })) catch unreachable;
+                        }
+                        //
+                    }
+                    //
+
+                    for (0..len) |ii| {
+                        var i = len - 1 - ii;
+                        var d_data = block.node_data.wide.data[i];
+
+                        if (d_data.exists) {
+                            if (!d_data.is_leaf) {
+                                _ = file.write(alloc.temp_format("i={} Pushing {}\n", .{ i, d_data.data })) catch unreachable;
+                                stack[stack_len] = @as(u32, @intCast(d_data.data));
+                                stack_len += 1;
+                            }
+                        }
+                        //
+                    }
+                    //
+                }
+
+                cur = block.metadata.next;
+                if (cur != 0) {
+                    _ = file.write(alloc.temp_format("Moving sideways to {}\n", .{cur})) catch unreachable;
+                }
+            }
+        }
+    }
 
     pub fn insert(self: *TrieView, string: []const u8) !void {
         var node = self.trie.blocks.at(@intCast(self.*.current_block));

@@ -21,6 +21,11 @@ pub fn gpa_new_idk(comptime T: type) *T {
 pub fn new_arraylist(comptime T: type) std.ArrayList(T) {
     return std.ArrayList(T).init(gpa.allocator());
 }
+
+pub fn temp_format(comptime format_string: []const u8, args: anytype) []const u8 {
+    return std.fmt.allocPrint(temp_alloc.allocator(), format_string, args) catch unreachable;
+}
+
 // Is there a standard library function for this?
 pub fn zeroed(comptime T: type, comptime N: usize) [N]T {
     var xs: [N]T = undefined;

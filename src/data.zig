@@ -191,8 +191,8 @@ pub const BackingData = struct {
         g_backing_data.trie_blocks = undefined;
         g_backing_data.trie_blocks.len = @ptrCast(@alignCast(map.ptr + 16));
         const start = 16 + @sizeOf(usize);
-        var trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
-        var end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
+        var loaded_trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
+        var end = loaded_trie_block_count * @sizeOf(lego_trie.TrieBlock);
         var trieblock_bytes = map[start .. start + end];
 
         g_backing_data.trie_blocks.map = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, @volatileCast(trieblock_bytes)));
@@ -218,7 +218,7 @@ pub const BackingData = struct {
         } else if (magic_equal) {
             if (version.* == current_version) {
                 log.log_debug("Successfully read existing state, {} bytes\n", .{g_backing_data.size_in_bytes_ptr.*});
-                log.log_debug("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, g_backing_data.trie_blocks.len.* });
+                log.log_debug("Loading block trie, map has space for {} blocks, state uses {} blocks\n", .{ loaded_trie_block_count, g_backing_data.trie_blocks.len.* });
             } else {
                 alloc.fmt_panic("Unexpected version '{}' expected {}", .{ version.*, current_version });
             }
@@ -330,7 +330,10 @@ pub fn DumbList(comptime T: type) type {
         }
 
         pub fn at(self: *const Self, i: usize) *T {
-            std.debug.assert(i < self.len.*);
+            //std.debug.assert(i < self.len.*);
+            if (i >= self.len.*) {
+                std.debug.panic("Out of range list access {} length {}", .{ i, self.len.* });
+            }
             return &self.map[i];
         }
     };
