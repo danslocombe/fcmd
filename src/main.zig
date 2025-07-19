@@ -20,6 +20,7 @@ pub fn main() !void {
 
     windows.setup_console();
     windows.write_console("Fcmd v0.01\n");
+    windows.write_console("DEBUGGING\n");
 
     data.BackingData.init(state_dir_override);
 

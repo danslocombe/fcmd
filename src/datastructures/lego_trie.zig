@@ -416,6 +416,13 @@ pub const StepResult = struct {
     get_child: GetChildResult,
 };
 
+pub const VerifyStackEntry = struct {
+    block_id: u32,
+    prev_cost: u32,
+    string_len: usize,
+    inline_string: InlineString(32),
+};
+
 pub const TrieView = struct {
     trie: *Trie,
     current_block: u32 = 0,
@@ -425,20 +432,35 @@ pub const TrieView = struct {
 
         var first = true;
 
+        var cur_string_buffer: [2056]u8 = undefined;
+        var cur_string_length: usize = 0;
+
         // Breadth first iterator, dump out
-        var stack: [128]u32 = undefined;
+        var stack: [128]VerifyStackEntry = undefined;
         var stack_len: usize = 0;
 
-        stack[0] = self.current_block;
+        stack[0] = .{
+            .block_id = self.current_block,
+            .prev_cost = 0,
+            .string_len = 0,
+            .inline_string = .{},
+        };
+
         stack_len += 1;
 
         while (stack_len > 0) {
             var popped = stack[stack_len - 1];
             stack_len -= 1;
-
             var stack_len_at_start = stack_len;
 
-            var cur = popped;
+            var prev_cost = popped.prev_cost;
+            var cur = popped.block_id;
+
+            cur_string_length = popped.string_len;
+            var popped_slice = popped.inline_string.slice();
+            @memcpy(cur_string_buffer[cur_string_length..(cur_string_length + popped_slice.len)], popped_slice);
+            cur_string_length += popped_slice.len;
+
             while (first or cur != 0) {
                 first = false;
 
@@ -450,6 +472,14 @@ pub const TrieView = struct {
                         var d_data = block.node_data.wide.data[i];
                         var cost = block.node_data.wide.costs[i];
                         var s_data = block.node_data.wide.nodes[i];
+
+                        if (d_data.exists and stack_len > 0) {
+                            if (cost < prev_cost) {
+                                std.debug.print("WIDE INVERSION, block id {} child {}, prev {} cur {}\n", .{ cur, i, prev_cost, cost });
+                                std.debug.print("Prev String: {s} \n", .{cur_string_buffer[0..cur_string_length]});
+                                std.debug.print("This string: {s} \n", .{s_data.slice()});
+                            }
+                        }
 
                         if (d_data.exists) {
                             for (0..stack_len_at_start) |_| {
@@ -463,11 +493,18 @@ pub const TrieView = struct {
                     for (0..len) |ii| {
                         var i = len - 1 - ii;
                         var d_data = block.node_data.wide.data[i];
+                        var cost = block.node_data.wide.costs[i];
+                        var s_data = block.node_data.wide.nodes[i];
 
                         if (d_data.exists) {
                             if (!d_data.is_leaf) {
                                 _ = file.write(alloc.temp_format("i={} Pushing {}\n", .{ i, d_data.data })) catch unreachable;
-                                stack[stack_len] = @as(u32, @intCast(d_data.data));
+                                stack[stack_len] = .{
+                                    .block_id = @as(u32, @intCast(d_data.data)),
+                                    .prev_cost = cost,
+                                    .string_len = cur_string_length,
+                                    .inline_string = InlineString(32).from_slice(s_data.slice()),
+                                };
                                 stack_len += 1;
                             }
                         }
@@ -482,6 +519,14 @@ pub const TrieView = struct {
                         var cost = block.node_data.tall.costs[i];
                         var s_data = block.node_data.tall.nodes[i];
 
+                        if (d_data.exists and stack_len > 0) {
+                            if (cost < prev_cost) {
+                                std.debug.print("TALL INVERSION, block id {} child {}, prev {} cur {}\n", .{ cur, i, prev_cost, cost });
+                                std.debug.print("Prev String: {s} \n", .{cur_string_buffer[0..cur_string_length]});
+                                std.debug.print("This string: {s} \n", .{s_data.slice()});
+                            }
+                        }
+
                         if (d_data.exists) {
                             for (0..stack_len_at_start) |_| {
                                 _ = file.write(" ") catch unreachable;
@@ -495,11 +540,18 @@ pub const TrieView = struct {
                     for (0..len) |ii| {
                         var i = len - 1 - ii;
                         var d_data = block.node_data.wide.data[i];
+                        var cost = block.node_data.tall.costs[i];
+                        var s_data = block.node_data.tall.nodes[i];
 
                         if (d_data.exists) {
                             if (!d_data.is_leaf) {
                                 _ = file.write(alloc.temp_format("i={} Pushing {}\n", .{ i, d_data.data })) catch unreachable;
-                                stack[stack_len] = @as(u32, @intCast(d_data.data));
+                                stack[stack_len] = .{
+                                    .block_id = @as(u32, @intCast(d_data.data)),
+                                    .prev_cost = cost,
+                                    .string_len = cur_string_length,
+                                    .inline_string = InlineString(32).from_slice(s_data.slice()),
+                                };
                                 stack_len += 1;
                             }
                         }
