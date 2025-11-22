@@ -312,6 +312,11 @@ pub fn DumbList(comptime T: type) type {
 
         pub fn append(self: *Self, x: T) void {
             if (self.len.* >= self.map.len) {
+                // Check if we're in test mode (no valid backing data)
+                if (g_backing_data.map_pointer == null and g_backing_data.file_handle == null) {
+                    @panic("Test backing array too small - increase size in test");
+                }
+                
                 // Resize
                 const new_size = initial_size + self.map.len * 2 * @sizeOf(lego_trie.TrieBlock);
 

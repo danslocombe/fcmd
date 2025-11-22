@@ -80,20 +80,20 @@ const TestHelpers = struct {
     }
     
     /// Creates a test trie with a fixed backing buffer
-    fn create_test_trie(backing: []lego_trie.TrieBlock, len: *usize) lego_trie.Trie {
-        len.* = 0;
-        const blocks = data.DumbList(lego_trie.TrieBlock){
-            .len = len,
-            .map = backing,
-        };
-        return lego_trie.Trie.init(@constCast(&blocks));
+    fn create_test_trie(blocks: *data.DumbList(lego_trie.TrieBlock)) lego_trie.Trie {
+        blocks.len.* = 0;
+        return lego_trie.Trie.init(blocks);
     }
 };
 
 test "basic insertion - insert 10 strings and verify all findable" {
-    var backing: [64]lego_trie.TrieBlock = undefined;
+    var backing: [2048]lego_trie.TrieBlock = undefined;
     var len: usize = 0;
-    var trie = TestHelpers.create_test_trie(&backing, &len);
+    var blocks = data.DumbList(lego_trie.TrieBlock){
+        .len = &len,
+        .map = &backing,
+    };
+    var trie = TestHelpers.create_test_trie(&blocks);
     
     const strings = [_][]const u8{
         "git status",
@@ -122,9 +122,10 @@ test "basic insertion - insert 10 strings and verify all findable" {
 }
 
 test "duplicate insertion - verify cost updates" {
-    var backing: [64]lego_trie.TrieBlock = undefined;
+    var backing: [512]lego_trie.TrieBlock = undefined;
     var len: usize = 0;
-    var trie = TestHelpers.create_test_trie(&backing, &len);
+    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
+    var trie = TestHelpers.create_test_trie(&blocks);
     
     const test_string = "git status";
     
@@ -156,9 +157,10 @@ test "duplicate insertion - verify cost updates" {
 }
 
 test "tall to wide promotion - insert 3 strings with GLOBAL_ prefix" {
-    var backing: [64]lego_trie.TrieBlock = undefined;
+    var backing: [512]lego_trie.TrieBlock = undefined;
     var len: usize = 0;
-    var trie = TestHelpers.create_test_trie(&backing, &len);
+    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
+    var trie = TestHelpers.create_test_trie(&blocks);
     
     // These strings force a tall->wide promotion based on existing test
     const strings = [_][]const u8{
@@ -184,9 +186,10 @@ test "tall to wide promotion - insert 3 strings with GLOBAL_ prefix" {
 }
 
 test "node spillover - insert enough strings to cause sibling allocation" {
-    var backing: [64]lego_trie.TrieBlock = undefined;
+    var backing: [512]lego_trie.TrieBlock = undefined;
     var len: usize = 0;
-    var trie = TestHelpers.create_test_trie(&backing, &len);
+    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
+    var trie = TestHelpers.create_test_trie(&blocks);
     
     // WideNodeLen is 4, so inserting 5+ strings with different prefixes
     // should cause spillover to siblings
@@ -218,9 +221,10 @@ test "node spillover - insert enough strings to cause sibling allocation" {
 }
 
 test "long string insertion - strings longer than TallStringLen" {
-    var backing: [64]lego_trie.TrieBlock = undefined;
+    var backing: [512]lego_trie.TrieBlock = undefined;
     var len: usize = 0;
-    var trie = TestHelpers.create_test_trie(&backing, &len);
+    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
+    var trie = TestHelpers.create_test_trie(&blocks);
     
     // TallStringLen is 22, so these should require multiple blocks
     const strings = [_][]const u8{
@@ -246,9 +250,10 @@ test "long string insertion - strings longer than TallStringLen" {
 }
 
 test "common prefix handling - deep tree structure" {
-    var backing: [64]lego_trie.TrieBlock = undefined;
+    var backing: [512]lego_trie.TrieBlock = undefined;
     var len: usize = 0;
-    var trie = TestHelpers.create_test_trie(&backing, &len);
+    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
+    var trie = TestHelpers.create_test_trie(&blocks);
     
     // Strings with long common prefixes create deep trees
     const strings = [_][]const u8{
@@ -274,9 +279,10 @@ test "common prefix handling - deep tree structure" {
 }
 
 test "prefix search - partial matches return extensions" {
-    var backing: [64]lego_trie.TrieBlock = undefined;
+    var backing: [512]lego_trie.TrieBlock = undefined;
     var len: usize = 0;
-    var trie = TestHelpers.create_test_trie(&backing, &len);
+    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
+    var trie = TestHelpers.create_test_trie(&blocks);
     
     var view = trie.to_view();
     try view.insert("testing");
@@ -291,9 +297,10 @@ test "prefix search - partial matches return extensions" {
 }
 
 test "empty trie operations - search in empty trie returns false" {
-    var backing: [64]lego_trie.TrieBlock = undefined;
+    var backing: [512]lego_trie.TrieBlock = undefined;
     var len: usize = 0;
-    var trie = TestHelpers.create_test_trie(&backing, &len);
+    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
+    var trie = TestHelpers.create_test_trie(&blocks);
     
     const view = trie.to_view();
     var walker = lego_trie.TrieWalker.init(view, "anything");
@@ -303,9 +310,10 @@ test "empty trie operations - search in empty trie returns false" {
 }
 
 test "single character strings" {
-    var backing: [64]lego_trie.TrieBlock = undefined;
+    var backing: [512]lego_trie.TrieBlock = undefined;
     var len: usize = 0;
-    var trie = TestHelpers.create_test_trie(&backing, &len);
+    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
+    var trie = TestHelpers.create_test_trie(&blocks);
     
     const strings = [_][]const u8{ "a", "b", "c", "d", "e" };
     
@@ -324,10 +332,11 @@ test "single character strings" {
 test "stress test - insert 100 varied strings" {
     var backing: [512]lego_trie.TrieBlock = undefined;
     var len: usize = 0;
-    var trie = TestHelpers.create_test_trie(&backing, &len);
+    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
+    var trie = TestHelpers.create_test_trie(&blocks);
     
-    var strings = std.ArrayList([]const u8).init(std.testing.allocator);
-    defer strings.deinit();
+    var strings: std.ArrayList([]const u8) = .empty;
+    defer strings.deinit(std.testing.allocator);
     
     // Generate varied strings
     var i: usize = 0;
@@ -337,7 +346,7 @@ test "stress test - insert 100 varied strings" {
             "command_{d}_test",
             .{i}
         );
-        try strings.append(s);
+        try strings.append(std.testing.allocator, s);
     }
     defer {
         for (strings.items) |s| {
@@ -362,3 +371,4 @@ test "stress test - insert 100 varied strings" {
         TestHelpers.count_total_nodes(&trie),
     });
 }
+

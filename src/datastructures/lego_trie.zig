@@ -48,7 +48,7 @@ pub const TrieBlock = struct {
         };
     }
 
-    fn get_child_size(self: *TrieBlock) usize {
+    pub fn get_child_size(self: *TrieBlock) usize {
         if (self.metadata.wide) {
             return self.node_data.wide.get_child_size();
         }
@@ -634,12 +634,12 @@ test "insert single" {
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
-    const blocks = data.DumbList(TrieBlock){
+    var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
 
-    var trie = Trie.init(blocks);
+    var trie = Trie.init(&blocks);
     var view = trie.to_view();
 
     for (strings) |s| {
@@ -666,12 +666,12 @@ test "insert double" {
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
-    const blocks = data.DumbList(TrieBlock){
+    var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
 
-    var trie = Trie.init(blocks);
+    var trie = Trie.init(&blocks);
     var view = trie.to_view();
 
     for (strings) |s| {
@@ -719,12 +719,12 @@ test "insert promoting leaf to node" {
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
-    const blocks = data.DumbList(TrieBlock){
+    var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
 
-    var trie = Trie.init(blocks);
+    var trie = Trie.init(&blocks);
     var view = trie.to_view();
 
     for (strings) |s| {
@@ -749,12 +749,12 @@ test "insert longstring" {
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
-    const blocks = data.DumbList(TrieBlock){
+    var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
 
-    var trie = Trie.init(blocks);
+    var trie = Trie.init(&blocks);
     var view = trie.to_view();
 
     for (strings) |s| {
@@ -794,12 +794,12 @@ test "insert splillover" {
 
     var backing: [32]TrieBlock = undefined;
     var len: usize = 0;
-    const blocks = data.DumbList(TrieBlock){
+    var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
 
-    var trie = Trie.init(blocks);
+    var trie = Trie.init(&blocks);
     var view = trie.to_view();
 
     for (strings) |s| {
@@ -833,12 +833,12 @@ test "iterate spillover" {
 
     var backing: [32]TrieBlock = undefined;
     var len: usize = 0;
-    const blocks = data.DumbList(TrieBlock){
+    var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
 
-    var trie = Trie.init(blocks);
+    var trie = Trie.init(&blocks);
     var view = trie.to_view();
 
     for (strings, 0..) |s, i| {
@@ -878,12 +878,12 @@ test "promote tall to wide" {
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
-    const blocks = data.DumbList(TrieBlock){
+    var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
 
-    var trie = Trie.init(blocks);
+    var trie = Trie.init(&blocks);
     var view = trie.to_view();
 
     for (strings) |s| {
