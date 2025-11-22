@@ -38,6 +38,11 @@ pub var g_cross_process_semaphore: *anyopaque = undefined;
 
 pub var g_filepath: [*c]const u8 = "";
 
+/// Initialize the global context - wrapper for BackingData.init
+pub fn init_global_context(state_override_dir: ?[]const u8) void {
+    BackingData.init(state_override_dir);
+}
+
 pub const BackingData = struct {
     file_handle: ?*anyopaque,
     map_pointer: ?*anyopaque,
@@ -51,7 +56,7 @@ pub const BackingData = struct {
     /// This does NOT use the global BackingData, returns a new instance
     pub fn open_test_state_file(filepath: [*c]const u8) !BackingData {
         log.log_debug("Opening test state file: {s}\n", .{filepath});
-        
+
         const GENERIC_READ = 0x80000000;
         const GENERIC_WRITE = 0x40000000;
         const file_handle: ?*anyopaque = windows.CreateFileA(filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
@@ -78,7 +83,7 @@ pub const BackingData = struct {
         // Use PID and a simple counter to avoid collisions
         const pid = windows.GetCurrentProcessId();
         const random = std.crypto.random.int(u32);
-        const map_name = alloc.tmp_for_c_introp_fmt("Local\\fcmd_test_trie_data_{d}_{d}", .{pid, random});
+        const map_name = alloc.tmp_for_c_introp_fmt("Local\\fcmd_test_trie_data_{d}_{d}", .{ pid, random });
 
         const map_handle = windows.CreateFileMapping(file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
         if (map_handle == null) {

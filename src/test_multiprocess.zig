@@ -204,9 +204,9 @@ pub fn verifyStringsInStateFile(
     strings: []const []const u8,
 ) !bool {
     _ = allocator;
-    
+
     const state_file_c = alloc.tmp_for_c_introp(state_file);
-    
+
     // Open the state file using memory mapping (same as main path)
     var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
         log.log_debug("Error opening state file '{s}': {}\n", .{ state_file, err });
@@ -254,9 +254,9 @@ pub fn getStringCost(
     needle: []const u8,
 ) !?u16 {
     _ = allocator;
-    
+
     const state_file_c = alloc.tmp_for_c_introp(state_file);
-    
+
     // Open the state file using memory mapping (same as main path)
     var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
         log.log_debug("Error opening state file '{s}': {}\n", .{ state_file, err });

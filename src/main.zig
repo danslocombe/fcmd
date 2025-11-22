@@ -73,7 +73,7 @@ fn runTestMode(args: []const []const u8) !u8 {
 
 fn runInsertTest(state_file: []const u8, string: []const u8) !u8 {
     const state_file_c = alloc.tmp_for_c_introp(state_file);
-    
+
     // Open the state file using memory mapping (same as main path)
     var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
         std.debug.print("Error opening state file '{s}': {}\n", .{ state_file, err });
@@ -97,7 +97,7 @@ fn runInsertTest(state_file: []const u8, string: []const u8) !u8 {
 
 fn runSearchTest(state_file: []const u8, string: []const u8) !u8 {
     const state_file_c = alloc.tmp_for_c_introp(state_file);
-    
+
     // Open the state file using memory mapping (same as main path)
     var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
         std.debug.print("Error opening state file '{s}': {}\n", .{ state_file, err });
@@ -156,7 +156,7 @@ pub fn main() !void {
     windows.setup_console();
     windows.write_console("Fcmd v0.01\n");
 
-    data.BackingData.init(state_dir_override);
+    data.init_global_context(state_dir_override);
 
     g_shell = Shell.init(&data.g_backing_data.trie_blocks);
 
