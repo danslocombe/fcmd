@@ -205,17 +205,19 @@ pub fn verifyStringsInStateFile(
 ) !bool {
     _ = allocator;
 
-    const state_file_c = alloc.tmp_for_c_introp(state_file);
+    //const state_file_c = alloc.tmp_for_c_introp(state_file);
 
     // Open the state file using memory mapping (same as main path)
-    var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
-        log.log_debug("Error opening state file '{s}': {}\n", .{ state_file, err });
-        return false;
-    };
-    defer backing_data.close_test_state_file();
+    var context = data.GlobalContext{};
+    data.BackingData.init(state_file, &context);
+    //var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
+    //    log.log_debug("Error opening state file '{s}': {}\n", .{ state_file, err });
+    //    return false;
+    //};
+    //defer backing_data.close_test_state_file();
 
     // Create trie view from memory-mapped data
-    var trie = lego_trie.Trie.init(&backing_data.trie_blocks);
+    var trie = lego_trie.Trie.init(&context.backing_data.trie_blocks);
     const view = trie.to_view();
 
     // Try to find each string

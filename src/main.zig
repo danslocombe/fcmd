@@ -7,6 +7,7 @@ const input = @import("input.zig");
 const data = @import("data.zig");
 const windows = @import("windows.zig");
 const test_mp = @import("test_multiprocess.zig");
+const lego_trie = @import("datastructures/lego_trie.zig");
 
 pub var g_shell: Shell = undefined;
 
@@ -72,17 +73,12 @@ fn runTestMode(args: []const []const u8) !u8 {
 }
 
 fn runInsertTest(state_file: []const u8, string: []const u8) !u8 {
-    const state_file_c = alloc.tmp_for_c_introp(state_file);
-
     // Open the state file using memory mapping (same as main path)
-    var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
-        std.debug.print("Error opening state file '{s}': {}\n", .{ state_file, err });
-        return 1;
-    };
-    defer backing_data.close_test_state_file();
+    var context = data.GlobalContext{};
+    data.BackingData.init(state_file, &context);
 
     // Create trie view from memory-mapped data
-    var trie = @import("datastructures/lego_trie.zig").Trie.init(&backing_data.trie_blocks);
+    var trie = lego_trie.Trie.init(&context.backing_data.trie_blocks);
     var view = trie.to_view();
 
     // Insert the string
@@ -96,20 +92,15 @@ fn runInsertTest(state_file: []const u8, string: []const u8) !u8 {
 }
 
 fn runSearchTest(state_file: []const u8, string: []const u8) !u8 {
-    const state_file_c = alloc.tmp_for_c_introp(state_file);
-
     // Open the state file using memory mapping (same as main path)
-    var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
-        std.debug.print("Error opening state file '{s}': {}\n", .{ state_file, err });
-        return 1;
-    };
-    defer backing_data.close_test_state_file();
+    var context = data.GlobalContext{};
+    data.BackingData.init(state_file, &context);
 
     // Create trie view from memory-mapped data
-    var trie = @import("datastructures/lego_trie.zig").Trie.init(&backing_data.trie_blocks);
+    var trie = lego_trie.Trie.init(&context.backing_data.trie_blocks);
     const view = trie.to_view();
 
-    var walker = @import("datastructures/lego_trie.zig").TrieWalker.init(view, string);
+    var walker = lego_trie.TrieWalker.init(view, string);
     if (walker.walk_to() and walker.char_id == string.len) {
         std.debug.print("Found '{s}' in {s}\n", .{ string, state_file });
         return 0;
@@ -156,22 +147,27 @@ pub fn main() !void {
     windows.setup_console();
     windows.write_console("Fcmd v0.01\n");
 
-    _ = data.init_global_context(state_dir_override);
+    const appdata: []const u8 = windows.get_appdata_path();
+    const fcmd_appdata_dir = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ appdata, "\\fcmd" }, 0) catch unreachable;
+    defer alloc.gpa.allocator().free(appdata);
 
-    g_shell = Shell.init(&data.g_backing_data.trie_blocks);
+    var context = data.GlobalContext{};
+    data.BackingData.init(fcmd_appdata_dir, &context);
+
+    g_shell = Shell.init(&context.backing_data.trie_blocks);
 
     g_shell.draw();
 
     // Instead of a static buffer we need a resizable list as copy/paste can produce a lot of inputs.
     var buffer = std.ArrayList(input.Input){};
     while (input.read_input(&buffer)) {
-        data.acquire_local_mutex();
+        context.data_mutex.lock();
         for (buffer.items) |in| {
             g_shell.apply_input(in);
         }
 
         g_shell.draw();
-        data.release_local_mutex();
+        context.data_mutex.unlock();
 
         alloc.clear_temp_alloc();
         buffer.clearRetainingCapacity();

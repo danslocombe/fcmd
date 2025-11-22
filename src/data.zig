@@ -25,23 +25,20 @@ const unload_event_name: [:0]const u8 = "fcmd_unload_data";
 const reload_event_name: [:0]const u8 = "fcmd_reload_data";
 const semaphore_name: [:0]const u8 = "Local\\fcmd_data_semaphore";
 
-pub var g_backing_data: BackingData = undefined;
-
 const initial_size = 256;
 
-pub var g_data_mutex: std.Thread.Mutex = .{};
+pub const GlobalContext = struct {
+    data_mutex: std.Thread.Mutex = .{},
 
-pub var g_unload_event: *anyopaque = undefined;
-pub var g_reload_event: *anyopaque = undefined;
-pub var g_hack_we_are_the_process_requesting_an_unload: bool = false;
-pub var g_cross_process_semaphore: *anyopaque = undefined;
+    unload_event: *anyopaque = undefined,
+    reload_event: *anyopaque = undefined,
+    hack_we_are_the_process_requesting_an_unload: bool = false,
+    cross_process_semaphore: *anyopaque = undefined,
 
-pub var g_filepath: [*c]const u8 = "";
+    filepath: [*c]const u8 = "",
 
-/// Initialize the global context - returns a BackingData instance
-pub fn init_global_context(state_override_dir: ?[]const u8) BackingData {
-    return BackingData.init(state_override_dir, false);
-}
+    backing_data: BackingData = undefined,
+};
 
 pub const BackingData = struct {
     file_handle: ?*anyopaque,
@@ -52,114 +49,73 @@ pub const BackingData = struct {
     trie_blocks: DumbList(lego_trie.TrieBlock),
     size_in_bytes_ptr: *volatile i32,
 
-    /// Open a memory-mapped file for a specific state file path (for testing)
-    /// This creates a new BackingData instance with sync objects for testing
-    pub fn open_test_state_file(filepath: [*c]const u8) !BackingData {
-        // Create unique semaphore and event names for this test instance
-        const pid = windows.GetCurrentProcessId();
-        const random = std.crypto.random.int(u32);
-        const test_semaphore_name = alloc.tmp_for_c_introp_fmt("Local\\fcmd_test_semaphore_{d}_{d}", .{ pid, random });
-        const test_unload_event_name = alloc.tmp_for_c_introp_fmt("fcmd_test_unload_{d}_{d}", .{ pid, random });
-        const test_reload_event_name = alloc.tmp_for_c_introp_fmt("fcmd_test_reload_{d}_{d}", .{ pid, random });
+    ///// Open a memory-mapped file for a specific state file path (for testing)
+    ///// This creates a new BackingData instance with sync objects for testing
+    //pub fn open_test_state_file(filepath: [*c]const u8) !BackingData {
+    //    // Create unique semaphore and event names for this test instance
+    //    const pid = windows.GetCurrentProcessId();
+    //    const random = std.crypto.random.int(u32);
+    //    const test_semaphore_name = alloc.tmp_for_c_introp_fmt("Local\\fcmd_test_semaphore_{d}_{d}", .{ pid, random });
+    //    const test_unload_event_name = alloc.tmp_for_c_introp_fmt("fcmd_test_unload_{d}_{d}", .{ pid, random });
+    //    const test_reload_event_name = alloc.tmp_for_c_introp_fmt("fcmd_test_reload_{d}_{d}", .{ pid, random });
 
-        return init_internal(filepath, test_semaphore_name, test_unload_event_name, test_reload_event_name, true);
-    }
+    //    return init_internal(filepath, test_semaphore_name, test_unload_event_name, test_reload_event_name, true);
+    //}
 
-    /// Close and clean up a test state file mapping
-    pub fn close_test_state_file(self: *BackingData) void {
-        _ = windows.UnmapViewOfFile(self.map_view_pointer);
-        if (self.map_pointer) |map_ptr| {
-            std.os.windows.CloseHandle(map_ptr);
-        }
-        if (self.file_handle) |file_handle| {
-            std.os.windows.CloseHandle(file_handle);
-        }
-    }
+    ///// Close and clean up a test state file mapping
+    //pub fn close_test_state_file(self: *BackingData) void {
+    //    _ = windows.UnmapViewOfFile(self.map_view_pointer);
+    //    if (self.map_pointer) |map_ptr| {
+    //        std.os.windows.CloseHandle(map_ptr);
+    //    }
+    //    if (self.file_handle) |file_handle| {
+    //        std.os.windows.CloseHandle(file_handle);
+    //    }
+    //}
 
-    pub fn init(state_override_dir: ?[]const u8, is_test: bool) BackingData {
-        var state_dir = state_override_dir;
-        const appdata: []const u8 = if (!is_test) windows.get_appdata_path() else "";
-        defer if (!is_test) alloc.gpa.allocator().free(appdata);
-
-        var filepath: [*c]const u8 = undefined;
-        var sem_name: [:0]const u8 = undefined;
-        var unload_evt_name: [:0]const u8 = undefined;
-        var reload_evt_name: [:0]const u8 = undefined;
-
-        if (is_test) {
-            // For test mode, state_override_dir is the actual filepath
-            filepath = @ptrCast(state_override_dir.?.ptr);
-            // These will be passed as parameters, using defaults for now
-            sem_name = semaphore_name;
-            unload_evt_name = unload_event_name;
-            reload_evt_name = reload_event_name;
-        } else {
-            // For normal mode, construct the path
-            if (state_dir == null) {
-                state_dir = appdata;
+    pub fn init(state_dir: []const u8, context: *GlobalContext) void {
+        std.fs.makeDirAbsolute(state_dir) catch |err| {
+            switch (err) {
+                error.PathAlreadyExists => {
+                    // This is fine
+                },
+                else => {
+                    alloc.fmt_panic("MakeDirAbsolute error when creating '{s}' {}\n", .{ state_dir, err });
+                },
             }
+        };
 
-            const fcmd_appdata_dir = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ state_dir.?, "\\fcmd" }, 0) catch unreachable;
-            std.fs.makeDirAbsolute(fcmd_appdata_dir) catch |err| {
-                switch (err) {
-                    error.PathAlreadyExists => {
-                        // This is fine
-                    },
-                    else => {
-                        alloc.fmt_panic("MakeDirAbsolute error when creating '{s}' {}\n", .{ fcmd_appdata_dir, err });
-                    },
-                }
-            };
+        const filepath = std.mem.concatWithSentinel(alloc.gpa.allocator(), u8, &[_][]const u8{ state_dir, "\\trie.frog" }, 0) catch unreachable;
 
-            filepath = std.mem.concatWithSentinel(alloc.gpa.allocator(), u8, &[_][]const u8{ fcmd_appdata_dir, "\\trie.frog" }, 0) catch unreachable;
-            g_filepath = filepath;
-
-            sem_name = semaphore_name;
-            unload_evt_name = unload_event_name;
-            reload_evt_name = reload_event_name;
-        }
-
-        const result = init_internal(filepath, sem_name, unload_evt_name, reload_evt_name, is_test) catch |err| {
+        const result = init_internal(filepath, context) catch |err| {
             alloc.fmt_panic("Failed to initialize BackingData: {}", .{err});
         };
 
-        if (!is_test) {
-            g_backing_data = result;
+        context.backing_data = result;
 
-            // Do a small initial load to just read out the size.
-            open_map(null);
-            open_map(@intCast(g_backing_data.size_in_bytes_ptr.*));
+        // Do a small initial load to just read out the size.
+        open_map(null, context);
+        open_map(@intCast(context.backing_data.size_in_bytes_ptr.*), context);
 
-            const thread = std.Thread.spawn(.{}, background_unloader_loop, .{}) catch @panic("Could not start background thread");
-            _ = thread;
-        }
-
-        return result;
+        const thread = std.Thread.spawn(.{}, background_unloader_loop, .{context}) catch @panic("Could not start background thread");
+        _ = thread;
     }
 
     /// Internal initialization function that handles the actual file mapping and sync object creation
-    fn init_internal(
-        filepath: [*c]const u8,
-        sem_name: [:0]const u8,
-        unload_evt_name: [:0]const u8,
-        reload_evt_name: [:0]const u8,
-        is_test: bool,
-    ) !BackingData {
+    fn init_internal(filepath: [*c]const u8, global_context: *GlobalContext) !BackingData {
         log.log_debug("Initializing BackingData for: {s}\n", .{filepath});
 
         // Create semaphore
-        log.log_debug("Creating semaphore {s}\n", .{sem_name});
-        const create_semaphore_result = windows.CreateSemaphoreA(null, 0, 1024, sem_name);
+        log.log_debug("Creating semaphore {s}\n", .{semaphore_name});
+        const create_semaphore_result = windows.CreateSemaphoreA(null, 0, 1024, semaphore_name);
         if (create_semaphore_result == null) {
             const last_error = windows.GetLastError();
-            log.log_debug("Failed to create semaphore {s}, Error {}\n", .{ sem_name, last_error });
+            log.log_debug("Failed to create semaphore {s}, Error {}\n", .{ semaphore_name, last_error });
             return error.CannotCreateSemaphore;
         }
 
         const semaphore = create_semaphore_result.?;
-        if (!is_test) {
-            g_cross_process_semaphore = semaphore;
-        }
+        global_context.cross_process_semaphore = semaphore;
 
         // Release semaphore to add to the count
         var prev_semaphore_count: i32 = -1;
@@ -175,29 +131,25 @@ pub const BackingData = struct {
         const manually_reset = 1;
         const initial_state = 0;
 
-        var get_event_response = windows.CreateEventA(null, manually_reset, initial_state, unload_evt_name);
+        var get_event_response = windows.CreateEventA(null, manually_reset, initial_state, unload_event_name);
         if (get_event_response == null) {
             const last_error = windows.GetLastError();
-            log.log_debug("CreateEventA {s} error code {}\n", .{ unload_evt_name, last_error });
+            log.log_debug("CreateEventA {s} error code {}\n", .{ unload_event_name, last_error });
             return error.CannotCreateUnloadEvent;
         }
 
         const unload_event = get_event_response.?;
-        if (!is_test) {
-            g_unload_event = unload_event;
-        }
+        global_context.unload_event = unload_event;
 
-        get_event_response = windows.CreateEventA(null, manually_reset, initial_state, reload_evt_name);
+        get_event_response = windows.CreateEventA(null, manually_reset, initial_state, reload_event_name);
         if (get_event_response == null) {
             const last_error = windows.GetLastError();
-            log.log_debug("CreateEventA {s} error code {}\n", .{ reload_evt_name, last_error });
+            log.log_debug("CreateEventA {s} error code {}\n", .{ reload_event_name, last_error });
             return error.CannotCreateReloadEvent;
         }
 
         const reload_event = get_event_response.?;
-        if (!is_test) {
-            g_reload_event = reload_event;
-        }
+        global_context.reload_event = reload_event;
 
         // Open or create the file
         const GENERIC_READ = 0x80000000;
@@ -223,11 +175,13 @@ pub const BackingData = struct {
         const size: usize = if (file_size_i64 > 0) @intCast(file_size_i64) else initial_size;
 
         // Create mapping name
-        const map_name = if (is_test) blk: {
-            const pid = windows.GetCurrentProcessId();
-            const random = std.crypto.random.int(u32);
-            break :blk alloc.tmp_for_c_introp_fmt("Local\\fcmd_test_trie_data_{d}_{d}", .{ pid, random });
-        } else alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
+        //const map_name = if (is_test) blk: {
+        //    const pid = windows.GetCurrentProcessId();
+        //    const random = std.crypto.random.int(u32);
+        //    break :blk alloc.tmp_for_c_introp_fmt("Local\\fcmd_test_trie_data_{d}_{d}", .{ pid, random });
+        //} else alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
+
+        const map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
 
         const map_handle = windows.CreateFileMapping(file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
         if (map_handle == null) {
@@ -275,11 +229,7 @@ pub const BackingData = struct {
 
         if (magic_all_zero) {
             // Empty, assume new file
-            if (is_test) {
-                log.log_debug("No data in the test state file. Initializing...\n", .{});
-            } else {
-                log.log_debug("No data in the state. Resetting ...\n", .{});
-            }
+            log.log_debug("No data in the state. Resetting ...\n", .{});
             @memcpy(@volatileCast(map_magic_number), &magic_number);
             version.* = current_version;
             size_in_bytes_ptr.* = @intCast(size);
@@ -308,13 +258,13 @@ pub const BackingData = struct {
         };
     }
 
-    pub fn open_map(new_size: ?usize) void {
+    pub fn open_map(new_size: ?usize, global_context: *GlobalContext) void {
         log.log_debug("Opening map. new_size {any}\n", new_size);
         const size = new_size orelse initial_size;
 
-        if (g_backing_data.map_pointer) |map_ptr| {
+        if (global_context.backing_data.map_pointer) |map_ptr| {
             std.os.windows.CloseHandle(map_ptr);
-            g_backing_data.map_pointer = null;
+            global_context.backing_data.map_pointer = null;
         }
 
         const map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
@@ -323,58 +273,58 @@ pub const BackingData = struct {
         const m_open_mapping_result = windows.OpenFileMappingA(FILE_MAP_ALL_ACCESS, 0, map_name);
         if (m_open_mapping_result) |open_mapping_result| {
             log.log_debug("Opened existing file mapping!\n", .{});
-            g_backing_data.map_pointer = open_mapping_result;
+            global_context.backing_data.map_pointer = open_mapping_result;
             // Use existing
         } else {
             log.log_debug("Could not open file mapping, creating new..\n", .{});
             // Create file mapping
-            if (g_backing_data.file_handle == null) {
+            if (global_context.backing_data.file_handle == null) {
                 const GENERIC_READ = 0x80000000;
                 const GENERIC_WRITE = 0x40000000;
-                const file_handle: ?*anyopaque = windows.CreateFileA(g_filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
+                const file_handle: ?*anyopaque = windows.CreateFileA(global_context.filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
 
                 if (file_handle == null) {
                     const last_error = windows.GetLastError();
                     alloc.fmt_panic("CreateFileA: Error code {}", .{last_error});
                 }
 
-                g_backing_data.file_handle = file_handle.?;
+                global_context.backing_data.file_handle = file_handle.?;
             }
 
-            const map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
+            const map_handle = windows.CreateFileMapping(global_context.backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
             if (map_handle == null) {
                 const last_error = windows.GetLastError();
                 alloc.fmt_panic("CreateFileMapping: Error code {}", .{last_error});
             }
 
-            g_backing_data.map_pointer = map_handle.?;
+            global_context.backing_data.map_pointer = map_handle.?;
         }
 
         // @Reliability switch to MapViewOfFile3 to guarentee alignment
         // https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-mapviewoffile3
-        const map_view = windows.MapViewOfFile(g_backing_data.map_pointer.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(size));
+        const map_view = windows.MapViewOfFile(global_context.backing_data.map_pointer.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(size));
 
         if (map_view == null) {
             const last_error = windows.GetLastError();
             alloc.fmt_panic("MapViewOfFile: Error code {}", .{last_error});
         }
 
-        g_backing_data.map_view_pointer = map_view.?;
+        global_context.backing_data.map_view_pointer = map_view.?;
 
-        var map = @as([*]volatile u8, @ptrCast(g_backing_data.map_view_pointer))[0..size];
+        var map = @as([*]volatile u8, @ptrCast(global_context.backing_data.map_view_pointer))[0..size];
 
         const map_magic_number = map[0..4];
         const version = &map[4];
-        g_backing_data.size_in_bytes_ptr = @ptrCast(@alignCast(map.ptr + 8));
+        global_context.backing_data.size_in_bytes_ptr = @ptrCast(@alignCast(map.ptr + 8));
 
-        g_backing_data.trie_blocks = undefined;
-        g_backing_data.trie_blocks.len = @ptrCast(@alignCast(map.ptr + 16));
+        global_context.backing_data.trie_blocks = undefined;
+        global_context.backing_data.trie_blocks.len = @ptrCast(@alignCast(map.ptr + 16));
         const start = 16 + @sizeOf(usize);
         const trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
         const end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
         const trieblock_bytes = map[start .. start + end];
 
-        g_backing_data.trie_blocks.map = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, @volatileCast(trieblock_bytes)));
+        global_context.backing_data.trie_blocks.map = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, @volatileCast(trieblock_bytes)));
 
         var magic_equal = true;
         var magic_all_zero = true;
@@ -393,11 +343,11 @@ pub const BackingData = struct {
             log.log_info("No data in the state. Resetting ...\n", .{});
             @memcpy(map_magic_number, &magic_number);
             version.* = current_version;
-            g_backing_data.size_in_bytes_ptr.* = @intCast(size);
+            global_context.backing_data.size_in_bytes_ptr.* = @intCast(size);
         } else if (magic_equal) {
             if (version.* == current_version) {
-                log.log_debug("Successfully read existing state, {} bytes\n", .{g_backing_data.size_in_bytes_ptr.*});
-                log.log_debug("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, g_backing_data.trie_blocks.len.* });
+                log.log_debug("Successfully read existing state, {} bytes\n", .{global_context.backing_data.size_in_bytes_ptr.*});
+                log.log_debug("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, global_context.backing_data.trie_blocks.len.* });
             } else {
                 alloc.fmt_panic("Unexpected version '{}' expected {}", .{ version.*, current_version });
             }
@@ -411,7 +361,7 @@ pub const BackingData = struct {
             // we have read the an existing file with a given size and we are mapping to that
             // or we have just resized.
             // In the first case it is harmless to set this, in the second we need to set this.
-            g_backing_data.size_in_bytes_ptr.* = @intCast(x);
+            global_context.backing_data.size_in_bytes_ptr.* = @intCast(x);
         }
     }
 };
@@ -489,24 +439,21 @@ pub fn DumbList(comptime T: type) type {
         //map: [*]volatile T,
         map: []T,
 
+        global_context: *GlobalContext,
+
         pub fn append(self: *Self, x: T) void {
             if (self.len.* >= self.map.len) {
-                // Check if we're in test mode (no valid backing data)
-                if (g_backing_data.map_pointer == null and g_backing_data.file_handle == null) {
-                    @panic("Test backing array too small - increase size in test");
-                }
-
                 // Resize
                 const new_size = initial_size + self.map.len * 2 * @sizeOf(lego_trie.TrieBlock);
 
                 // @Hack set the value in the backing data to the new size
                 // before telling everyone to unload and reload as they need to know
                 // the size to read first.
-                g_backing_data.size_in_bytes_ptr.* = @intCast(new_size);
+                self.global_context.backing_data.size_in_bytes_ptr.* = @intCast(new_size);
 
-                ensure_other_processes_have_released_handle();
-                BackingData.open_map(new_size);
-                signal_other_processes_can_reaquire_handle();
+                ensure_other_processes_have_released_handle(self.global_context);
+                BackingData.open_map(new_size, self.global_context);
+                signal_other_processes_can_reaquire_handle(self.global_context);
             }
 
             self.map[self.len.*] = x;
@@ -520,18 +467,18 @@ pub fn DumbList(comptime T: type) type {
     };
 }
 
-pub fn ensure_other_processes_have_released_handle() void {
+pub fn ensure_other_processes_have_released_handle(global_context: *GlobalContext) void {
     log.log_debug("Ensuring exclusive control...\n", .{});
 
-    g_hack_we_are_the_process_requesting_an_unload = true;
+    global_context.hack_we_are_the_process_requesting_an_unload = true;
 
-    if (windows.ResetEvent(g_reload_event) == 0) {
+    if (windows.ResetEvent(global_context.reload_event) == 0) {
         const last_error = windows.GetLastError();
         alloc.fmt_panic("Failed to reset event '{s}'. Error {}", .{ reload_event_name, last_error });
     }
 
     // Signal to others they should begin unloading
-    if (windows.SetEvent(g_unload_event) == 0) {
+    if (windows.SetEvent(global_context.unload_event) == 0) {
         const last_error = windows.GetLastError();
         alloc.fmt_panic("Failed to set event '{s}'. Error {}", .{ unload_event_name, last_error });
     }
@@ -545,10 +492,10 @@ pub fn ensure_other_processes_have_released_handle() void {
         //}
 
         log.log_debug("Acquiring semaphore...\n", .{});
-        _ = windows.WaitForSingleObject(g_cross_process_semaphore, INFINITE);
+        _ = windows.WaitForSingleObject(global_context.cross_process_semaphore, INFINITE);
 
         var prev_count: i32 = -1;
-        if (windows.ReleaseSemaphore(g_cross_process_semaphore, 1, &prev_count) == 0) {
+        if (windows.ReleaseSemaphore(global_context.cross_process_semaphore, 1, &prev_count) == 0) {
             const last_error = windows.GetLastError();
             alloc.fmt_panic("Failed to release semaphore, Error {}", .{last_error});
         }
@@ -566,35 +513,27 @@ pub fn ensure_other_processes_have_released_handle() void {
     }
 }
 
-pub fn signal_other_processes_can_reaquire_handle() void {
-    g_hack_we_are_the_process_requesting_an_unload = false;
+pub fn signal_other_processes_can_reaquire_handle(global_context: *GlobalContext) void {
+    global_context.hack_we_are_the_process_requesting_an_unload = false;
 
-    if (windows.ResetEvent(g_unload_event) == 0) {
+    if (windows.ResetEvent(global_context.unload_event) == 0) {
         const last_error = windows.GetLastError();
         alloc.fmt_panic("Failed to reset event '{s}'. Error {}", .{ unload_event_name, last_error });
     }
 
-    if (windows.SetEvent(g_reload_event) == 0) {
+    if (windows.SetEvent(global_context.reload_event) == 0) {
         const last_error = windows.GetLastError();
         alloc.fmt_panic("Failed to set event '{s}'. Error {}", .{ reload_event_name, last_error });
     }
 }
 
-pub fn acquire_local_mutex() void {
-    g_data_mutex.lock();
-}
-
-pub fn release_local_mutex() void {
-    g_data_mutex.unlock();
-}
-
-pub fn background_unloader_loop() void {
+pub fn background_unloader_loop(global_context: *GlobalContext) void {
     log.log_debug("[Background Unloader] Initialized\n", .{});
     log.log_debug("[Background Unloader] Waiting for {s}\n", .{unload_event_name});
     while (true) {
-        _ = windows.WaitForSingleObject(g_unload_event, INFINITE);
+        _ = windows.WaitForSingleObject(global_context.unload_event, INFINITE);
 
-        if (g_hack_we_are_the_process_requesting_an_unload) {
+        if (global_context.hack_we_are_the_process_requesting_an_unload) {
             // @Reliability race conditions here?
             //log.log_debug("[Background Unloader] It is us requesting an unload! Skipping", .{});
 
@@ -608,28 +547,28 @@ pub fn background_unloader_loop() void {
         log.log_debug("[Background Unloader] Event signaled!\n", .{});
 
         log.log_debug("[Background Unloader] Acquiring local mutex...\n", .{});
-        acquire_local_mutex();
+        global_context.data_mutex.lock();
         // Now locally safe to unload
 
-        const reload_size = g_backing_data.size_in_bytes_ptr.*;
+        const reload_size = global_context.backing_data.size_in_bytes_ptr.*;
         log.log_debug("Unloading file...\n", .{});
-        if (g_backing_data.map_pointer) |map_ptr| {
+        if (global_context.backing_data.map_pointer) |map_ptr| {
             std.os.windows.CloseHandle(map_ptr);
-            g_backing_data.map_pointer = null;
+            global_context.backing_data.map_pointer = null;
         }
 
         // Signify we no longer have the file open
         log.log_debug("[Background Unloader] Acquiring semaphore...\n", .{});
-        _ = windows.WaitForSingleObject(g_cross_process_semaphore, INFINITE);
+        _ = windows.WaitForSingleObject(global_context.cross_process_semaphore, INFINITE);
 
         // ...
 
         log.log_debug("Waiting until its safe to reload...\n", .{});
-        _ = windows.WaitForSingleObject(g_reload_event, INFINITE);
+        _ = windows.WaitForSingleObject(global_context.reload_event, INFINITE);
 
         // Increment semaphore to signify we are reading the file
         var prev_semaphore_count: i32 = -1;
-        if (windows.ReleaseSemaphore(g_cross_process_semaphore, 1, &prev_semaphore_count) == 0) {
+        if (windows.ReleaseSemaphore(global_context.cross_process_semaphore, 1, &prev_semaphore_count) == 0) {
             const last_error = windows.GetLastError();
             alloc.fmt_panic("Failed to release semaphore, Error {}", .{last_error});
         }
@@ -638,8 +577,8 @@ pub fn background_unloader_loop() void {
 
         // This shoullld be fine, do we need more guarentees?
         // This should be opening with the same size as everyone else
-        BackingData.open_map(@intCast(reload_size));
+        BackingData.open_map(@intCast(reload_size), global_context);
 
-        release_local_mutex();
+        global_context.data_mutex.unlock();
     }
 }
