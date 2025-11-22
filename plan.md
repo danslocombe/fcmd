@@ -293,10 +293,89 @@ The trie uses cross-process synchronization via:
 
 **Current Status:** Infrastructure complete, ready for process spawning implementation.
 
-**Deferred Considerations:**
+---
+
+### **Phase 4.5: Actual Multi-Process Tests ⏳ PENDING**
+
+**Goal:** Implement the actual multi-process concurrency tests using the infrastructure built in Phase 4.
+
+**Prerequisites:**
+- ✅ Test state file serialization (Phase 4)
+- ✅ CLI test mode with --test-mp (Phase 4)
+- ✅ Process controller structure (Phase 4)
+- ⏳ Process spawning implementation (next step)
+
+**Tests to Implement:**
+
+**Test 1: Simultaneous Readers** 👈 START HERE
+- Create state file with 100 pre-inserted strings
+- Spawn 5 `fcmd --test-mp search` processes, each searching for different strings
+- Verify all processes exit with code 0 (found)
+- Verify state file unchanged after concurrent reads
+```zig
+test "Phase 4.5: simultaneous readers" {
+    // 1. Create state file with 100 strings
+    // 2. Spawn 5 processes: fcmd --test-mp search <file> <string_N>
+    // 3. Wait for all to complete
+    // 4. Verify all exit codes are 0
+    // 5. Verify state file integrity
+}
+```
+
+**Test 2: Concurrent Readers + 1 Writer**
+- State file with 50 initial strings
+- Spawn 4 reader processes continuously searching
+- Spawn 1 writer process inserting 10 new strings
+- Verify all 60 strings present at end, all readers succeeded
+
+**Test 3: Multiple Writers (Semaphore Stress)**
+- Empty state file
+- Spawn 3 writer processes, each inserting 20 unique strings
+- Verify all 60 strings present in final state (no lost writes)
+- Verify no duplicate blocks or corruption
+
+**Test 4: Resize During Read**
+- State file near capacity (e.g., 200 blocks with 190 used)
+- Spawn 2 readers actively searching
+- Spawn 1 writer that triggers resize by filling capacity
+- Verify background unloader coordinates properly
+- Verify readers handle unload/reload events
+- Verify all data intact after resize
+
+**Test 5: Rapid Insert Stress**
+- State file with 10 initial strings
+- Spawn 5 processes, each rapidly inserting 50 strings
+- Expected: 260 total strings (10 + 5×50)
+- Verify structure integrity and all strings findable
+
+**Test 6: Search During Concurrent Inserts**
+- State file with 100 strings
+- Spawn 3 writer processes inserting new strings
+- Spawn 3 reader processes searching for original 100 strings
+- Verify all original searches succeed
+- Verify all new inserts present at end
+
+**Test 7: Stress with Shared Prefixes**
+- Empty state file
+- Spawn 4 processes inserting strings with common prefixes
+- Tests tall→wide promotion under concurrent access
+- Verify no corruption in promotion logic
+- Verify all strings present and findable
+
+**Implementation Notes:**
+- Use `std.process.Child.spawn()` for process creation
+- Add small delays (10-100ms) between spawns for timing control
+- Use exit codes to communicate success/failure
+- Consider adding a `--test-mp wait <ms>` command for synchronization
+- Each test should clean up state files on completion
+
+**Deferred (Phase 5+):**
 - Timeout handling for zombie processes (may require OS-level semaphore inspection)
 - Stress testing with >10 processes (resource limits)
 - Cross-machine testing (network file systems)
+- Zombie process simulation (requires process killing)
+
+---
 
 ### **3. Data Integrity Tests**
 - **Round-trip verification:** Insert known data, read back, verify exact match
