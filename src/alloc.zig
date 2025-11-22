@@ -56,3 +56,10 @@ pub fn tmp_for_c_introp(s: []const u8) [:0]const u8 {
     @memcpy(copy, s);
     return copy;
 }
+
+pub fn tmp_for_c_introp_fmt(comptime fmt: []const u8, args: anytype) [:0]const u8 {
+    const result = std.fmt.allocPrint(temp_alloc.allocator(), fmt, args) catch unreachable;
+    const copy = temp_alloc.allocator().allocSentinel(u8, result.len, 0) catch unreachable;
+    @memcpy(copy, result);
+    return copy;
+}

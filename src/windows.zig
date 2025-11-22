@@ -50,6 +50,10 @@ pub const STD_OUTPUT_HANDLE = import.STD_OUTPUT_HANDLE;
 pub const GetStdHandle = import.GetStdHandle;
 pub const GenerateConsoleCtrlEvent = import.GenerateConsoleCtrlEvent;
 pub const Sleep = import.Sleep;
+pub const GetFileSizeEx = import.GetFileSizeEx;
+pub const UnmapViewOfFile = import.UnmapViewOfFile;
+pub const GetCurrentProcessId = import.GetCurrentProcessId;
+pub const LARGE_INTEGER = import.LARGE_INTEGER;
 
 pub var g_stdout: *anyopaque = undefined;
 pub var g_stdin: *anyopaque = undefined;

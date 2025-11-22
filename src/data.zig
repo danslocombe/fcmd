@@ -47,6 +47,125 @@ pub const BackingData = struct {
     trie_blocks: DumbList(lego_trie.TrieBlock),
     size_in_bytes_ptr: *volatile i32,
 
+    /// Open a memory-mapped file for a specific state file path (for testing)
+    /// This does NOT use the global BackingData, returns a new instance
+    pub fn open_test_state_file(filepath: [*c]const u8) !BackingData {
+        log.log_debug("Opening test state file: {s}\n", .{filepath});
+        
+        const GENERIC_READ = 0x80000000;
+        const GENERIC_WRITE = 0x40000000;
+        const file_handle: ?*anyopaque = windows.CreateFileA(filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
+
+        if (file_handle == null) {
+            const last_error = windows.GetLastError();
+            log.log_debug("CreateFileA failed: Error code {}\n", .{last_error});
+            return error.CannotOpenFile;
+        }
+
+        // Get file size to determine mapping size
+        var file_size_union: windows.LARGE_INTEGER = undefined;
+        if (windows.GetFileSizeEx(file_handle.?, &file_size_union) == 0) {
+            const last_error = windows.GetLastError();
+            std.os.windows.CloseHandle(file_handle.?);
+            log.log_debug("GetFileSizeEx failed: Error code {}\n", .{last_error});
+            return error.CannotGetFileSize;
+        }
+
+        const file_size_i64 = file_size_union.QuadPart;
+        const size: usize = if (file_size_i64 > 0) @intCast(file_size_i64) else initial_size;
+
+        // Create unique mapping name for this test file
+        // Use PID and a simple counter to avoid collisions
+        const pid = windows.GetCurrentProcessId();
+        const random = std.crypto.random.int(u32);
+        const map_name = alloc.tmp_for_c_introp_fmt("Local\\fcmd_test_trie_data_{d}_{d}", .{pid, random});
+
+        const map_handle = windows.CreateFileMapping(file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
+        if (map_handle == null) {
+            const last_error = windows.GetLastError();
+            std.os.windows.CloseHandle(file_handle.?);
+            log.log_debug("CreateFileMapping failed: Error code {}\n", .{last_error});
+            return error.CannotCreateMapping;
+        }
+
+        const map_view = windows.MapViewOfFile(map_handle.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(size));
+        if (map_view == null) {
+            const last_error = windows.GetLastError();
+            std.os.windows.CloseHandle(map_handle.?);
+            std.os.windows.CloseHandle(file_handle.?);
+            log.log_debug("MapViewOfFile failed: Error code {}\n", .{last_error});
+            return error.CannotMapView;
+        }
+
+        var map = @as([*]volatile u8, @ptrCast(map_view.?))[0..size];
+
+        const map_magic_number = map[0..4];
+        const version = &map[4];
+        const size_in_bytes_ptr: *volatile i32 = @ptrCast(@alignCast(map.ptr + 8));
+
+        var trie_blocks: DumbList(lego_trie.TrieBlock) = undefined;
+        trie_blocks.len = @ptrCast(@alignCast(map.ptr + 16));
+        const start = 16 + @sizeOf(usize);
+        const trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
+        const end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
+        const trieblock_bytes = map[start .. start + end];
+
+        trie_blocks.map = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, @volatileCast(trieblock_bytes)));
+
+        var magic_equal = true;
+        var magic_all_zero = true;
+        for (map_magic_number, magic_number) |actual_magic, expected_magic| {
+            if (actual_magic != expected_magic) {
+                magic_equal = false;
+            }
+
+            if (actual_magic != 0) {
+                magic_all_zero = false;
+            }
+        }
+
+        if (magic_all_zero) {
+            // Empty, assume new file
+            log.log_debug("No data in the test state file. Initializing...\n", .{});
+            @memcpy(@volatileCast(map_magic_number), &magic_number);
+            version.* = current_version;
+            size_in_bytes_ptr.* = @intCast(size);
+        } else if (magic_equal) {
+            if (version.* == current_version) {
+                log.log_debug("Successfully read existing test state, {} bytes\n", .{size_in_bytes_ptr.*});
+                log.log_debug("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, trie_blocks.len.* });
+            } else {
+                std.os.windows.CloseHandle(map_handle.?);
+                std.os.windows.CloseHandle(file_handle.?);
+                return error.InvalidVersion;
+            }
+        } else {
+            std.os.windows.CloseHandle(map_handle.?);
+            std.os.windows.CloseHandle(file_handle.?);
+            return error.InvalidMagicNumber;
+        }
+
+        return BackingData{
+            .file_handle = file_handle,
+            .map_pointer = map_handle,
+            .map_view_pointer = map_view.?,
+            .map = @volatileCast(map),
+            .trie_blocks = trie_blocks,
+            .size_in_bytes_ptr = size_in_bytes_ptr,
+        };
+    }
+
+    /// Close and clean up a test state file mapping
+    pub fn close_test_state_file(self: *BackingData) void {
+        _ = windows.UnmapViewOfFile(self.map_view_pointer);
+        if (self.map_pointer) |map_ptr| {
+            std.os.windows.CloseHandle(map_ptr);
+        }
+        if (self.file_handle) |file_handle| {
+            std.os.windows.CloseHandle(file_handle);
+        }
+    }
+
     pub fn init(state_override_dir: ?[]const u8) void {
         g_backing_data.map_pointer = null;
 

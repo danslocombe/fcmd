@@ -203,39 +203,19 @@ pub fn verifyStringsInStateFile(
     state_file: []const u8,
     strings: []const []const u8,
 ) !bool {
-    // Open the state file and create a trie view
-    const file = try std.fs.cwd().openFile(state_file, .{});
-    defer file.close();
-
-    const stat = try file.stat();
-    const file_size = stat.size;
-
-    const buffer = try allocator.alloc(u8, file_size);
-    defer allocator.free(buffer);
-
-    const bytes_read = try file.preadAll(buffer, 0);
-    if (bytes_read != file_size) {
-        return error.IncompleteRead;
-    }
-
-    // Set up trie from buffer
-    var len: usize = 0;
-    const len_ptr: *usize = @ptrCast(@alignCast(buffer.ptr + 16));
-    len = len_ptr.*;
-
-    const start = 16 + @sizeOf(usize);
-    const trie_block_count = @divFloor(buffer.len - start, @sizeOf(lego_trie.TrieBlock));
-    const end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
-    const trieblock_bytes = buffer[start .. start + end];
-
-    const trie_blocks: []lego_trie.TrieBlock = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, trieblock_bytes));
-
-    var blocks_list = data.DumbList(lego_trie.TrieBlock){
-        .len = &len,
-        .map = trie_blocks,
+    _ = allocator;
+    
+    const state_file_c = alloc.tmp_for_c_introp(state_file);
+    
+    // Open the state file using memory mapping (same as main path)
+    var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
+        log.log_debug("Error opening state file '{s}': {}\n", .{ state_file, err });
+        return false;
     };
+    defer backing_data.close_test_state_file();
 
-    var trie = lego_trie.Trie.init(&blocks_list);
+    // Create trie view from memory-mapped data
+    var trie = lego_trie.Trie.init(&backing_data.trie_blocks);
     const view = trie.to_view();
 
     // Try to find each string
@@ -273,38 +253,19 @@ pub fn getStringCost(
     state_file: []const u8,
     needle: []const u8,
 ) !?u16 {
-    const file = try std.fs.cwd().openFile(state_file, .{});
-    defer file.close();
-
-    const stat = try file.stat();
-    const file_size = stat.size;
-
-    const buffer = try allocator.alloc(u8, file_size);
-    defer allocator.free(buffer);
-
-    const bytes_read = try file.preadAll(buffer, 0);
-    if (bytes_read != file_size) {
-        return error.IncompleteRead;
-    }
-
-    // Set up trie from buffer
-    var len: usize = 0;
-    const len_ptr: *usize = @ptrCast(@alignCast(buffer.ptr + 16));
-    len = len_ptr.*;
-
-    const start = 16 + @sizeOf(usize);
-    const trie_block_count = @divFloor(buffer.len - start, @sizeOf(lego_trie.TrieBlock));
-    const end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
-    const trieblock_bytes = buffer[start .. start + end];
-
-    const trie_blocks: []lego_trie.TrieBlock = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, trieblock_bytes));
-
-    var blocks_list = data.DumbList(lego_trie.TrieBlock){
-        .len = &len,
-        .map = trie_blocks,
+    _ = allocator;
+    
+    const state_file_c = alloc.tmp_for_c_introp(state_file);
+    
+    // Open the state file using memory mapping (same as main path)
+    var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
+        log.log_debug("Error opening state file '{s}': {}\n", .{ state_file, err });
+        return null;
     };
+    defer backing_data.close_test_state_file();
 
-    var trie = lego_trie.Trie.init(&blocks_list);
+    // Create trie view from memory-mapped data
+    var trie = lego_trie.Trie.init(&backing_data.trie_blocks);
     const view = trie.to_view();
 
     // Walk to the string and get its cost

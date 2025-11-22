@@ -12,7 +12,7 @@ pub var g_shell: Shell = undefined;
 
 fn printUsage() void {
     const usage =
-        \\Fcmd v0.01 - Fast command-line tool
+        \\Fcmd v0.01
         \\
         \\Usage:
         \\  fcmd                                    Run interactive shell
@@ -72,45 +72,17 @@ fn runTestMode(args: []const []const u8) !u8 {
 }
 
 fn runInsertTest(state_file: []const u8, string: []const u8) !u8 {
-    const allocator = alloc.gpa.allocator();
-
-    // Open and load the state file
-    const file = std.fs.cwd().openFile(state_file, .{ .mode = .read_write }) catch |err| {
+    const state_file_c = alloc.tmp_for_c_introp(state_file);
+    
+    // Open the state file using memory mapping (same as main path)
+    var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
         std.debug.print("Error opening state file '{s}': {}\n", .{ state_file, err });
         return 1;
     };
-    defer file.close();
+    defer backing_data.close_test_state_file();
 
-    const stat = try file.stat();
-    const file_size = stat.size;
-
-    const buffer = try allocator.alloc(u8, file_size);
-    defer allocator.free(buffer);
-
-    const bytes_read = try file.preadAll(buffer, 0);
-    if (bytes_read != file_size) {
-        std.debug.print("Error: could not read entire file\n", .{});
-        return 1;
-    }
-
-    // Set up trie from buffer
-    var len: usize = 0;
-    const len_ptr: *usize = @ptrCast(@alignCast(buffer.ptr + 16));
-    len = len_ptr.*;
-
-    const start = 16 + @sizeOf(usize);
-    const trie_block_count = @divFloor(buffer.len - start, @sizeOf(@import("datastructures/lego_trie.zig").TrieBlock));
-    const end = trie_block_count * @sizeOf(@import("datastructures/lego_trie.zig").TrieBlock);
-    const trieblock_bytes = buffer[start .. start + end];
-
-    const trie_blocks: []@import("datastructures/lego_trie.zig").TrieBlock = @alignCast(std.mem.bytesAsSlice(@import("datastructures/lego_trie.zig").TrieBlock, trieblock_bytes));
-
-    var blocks_list = data.DumbList(@import("datastructures/lego_trie.zig").TrieBlock){
-        .len = &len,
-        .map = trie_blocks,
-    };
-
-    var trie = @import("datastructures/lego_trie.zig").Trie.init(&blocks_list);
+    // Create trie view from memory-mapped data
+    var trie = @import("datastructures/lego_trie.zig").Trie.init(&backing_data.trie_blocks);
     var view = trie.to_view();
 
     // Insert the string
@@ -119,56 +91,22 @@ fn runInsertTest(state_file: []const u8, string: []const u8) !u8 {
         return 1;
     };
 
-    // Write len back
-    len_ptr.* = len;
-
-    // Write buffer back to file
-    try file.seekTo(0);
-    try file.writeAll(buffer);
-
     std.debug.print("Successfully inserted '{s}' into {s}\n", .{ string, state_file });
     return 0;
 }
 
 fn runSearchTest(state_file: []const u8, string: []const u8) !u8 {
-    const allocator = alloc.gpa.allocator();
-
-    const file = std.fs.cwd().openFile(state_file, .{}) catch |err| {
+    const state_file_c = alloc.tmp_for_c_introp(state_file);
+    
+    // Open the state file using memory mapping (same as main path)
+    var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
         std.debug.print("Error opening state file '{s}': {}\n", .{ state_file, err });
         return 1;
     };
-    defer file.close();
+    defer backing_data.close_test_state_file();
 
-    const stat = try file.stat();
-    const file_size = stat.size;
-
-    const buffer = try allocator.alloc(u8, file_size);
-    defer allocator.free(buffer);
-
-    const bytes_read = try file.preadAll(buffer, 0);
-    if (bytes_read != file_size) {
-        std.debug.print("Error: could not read entire file\n", .{});
-        return 1;
-    }
-
-    // Set up trie from buffer
-    var len: usize = 0;
-    const len_ptr: *usize = @ptrCast(@alignCast(buffer.ptr + 16));
-    len = len_ptr.*;
-
-    const start = 16 + @sizeOf(usize);
-    const trie_block_count = @divFloor(buffer.len - start, @sizeOf(@import("datastructures/lego_trie.zig").TrieBlock));
-    const end = trie_block_count * @sizeOf(@import("datastructures/lego_trie.zig").TrieBlock);
-    const trieblock_bytes = buffer[start .. start + end];
-
-    const trie_blocks: []@import("datastructures/lego_trie.zig").TrieBlock = @alignCast(std.mem.bytesAsSlice(@import("datastructures/lego_trie.zig").TrieBlock, trieblock_bytes));
-
-    var blocks_list = data.DumbList(@import("datastructures/lego_trie.zig").TrieBlock){
-        .len = &len,
-        .map = trie_blocks,
-    };
-
-    var trie = @import("datastructures/lego_trie.zig").Trie.init(&blocks_list);
+    // Create trie view from memory-mapped data
+    var trie = @import("datastructures/lego_trie.zig").Trie.init(&backing_data.trie_blocks);
     const view = trie.to_view();
 
     var walker = @import("datastructures/lego_trie.zig").TrieWalker.init(view, string);
