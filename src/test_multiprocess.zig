@@ -255,6 +255,62 @@ pub fn verifyStringsInStateFile(
     return true;
 }
 
+/// Helper to get the cost (priority score) of a specific string in a state file
+/// Returns the cost value, or null if string not found
+/// Lower cost = higher priority (more frequently used)
+pub fn getStringCost(
+    allocator: std.mem.Allocator,
+    state_file: []const u8,
+    needle: []const u8,
+) !?u16 {
+    const file = try std.fs.cwd().openFile(state_file, .{});
+    defer file.close();
+
+    const stat = try file.stat();
+    const file_size = stat.size;
+
+    const buffer = try allocator.alloc(u8, file_size);
+    defer allocator.free(buffer);
+
+    const bytes_read = try file.preadAll(buffer, 0);
+    if (bytes_read != file_size) {
+        return error.IncompleteRead;
+    }
+
+    // Set up trie from buffer
+    var len: usize = 0;
+    const len_ptr: *usize = @ptrCast(@alignCast(buffer.ptr + 16));
+    len = len_ptr.*;
+
+    const start = 16 + @sizeOf(usize);
+    const trie_block_count = @divFloor(buffer.len - start, @sizeOf(lego_trie.TrieBlock));
+    const end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
+    const trieblock_bytes = buffer[start .. start + end];
+
+    const trie_blocks: []lego_trie.TrieBlock = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, trieblock_bytes));
+
+    var blocks_list = data.DumbList(lego_trie.TrieBlock){
+        .len = &len,
+        .map = trie_blocks,
+    };
+
+    var trie = lego_trie.Trie.init(&blocks_list);
+    const view = trie.to_view();
+
+    // Walk to the string and get its cost
+    var walker = lego_trie.TrieWalker.init(view, needle);
+    if (!walker.walk_to()) {
+        return null;
+    }
+
+    // Verify we consumed the entire string
+    if (walker.char_id != needle.len) {
+        return null;
+    }
+
+    return walker.cost;
+}
+
 /// Process controller for spawning and managing test processes
 pub const ProcessController = struct {
     allocator: std.mem.Allocator,

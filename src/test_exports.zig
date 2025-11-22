@@ -1821,6 +1821,196 @@ test "Phase 5: shared prefix stress - concurrent tall→wide promotions" {
     std.debug.print("Phase 5: Shared prefix stress passed, all {d} strings present ✓\n", .{all_strings.items.len});
 }
 
+test "Phase 5: score updates - duplicate inserts decrease cost" {
+    const test_state_path = "test_state_score_updates.frog";
+
+    // Clean up
+    std.fs.cwd().deleteFile(test_state_path) catch {};
+    defer std.fs.cwd().deleteFile(test_state_path) catch {};
+
+    // Create state file with a single string
+    var state_file = try test_mp.TestStateFile.create(
+        std.testing.allocator,
+        test_state_path,
+        256,
+    );
+    defer state_file.deinit();
+
+    const test_string = "git status";
+    const initial_strings = [_][]const u8{test_string};
+    try state_file.populate(&initial_strings);
+
+    // Get initial cost (should be BaseCost = 65535 for new insertion)
+    const initial_cost = try test_mp.getStringCost(
+        std.testing.allocator,
+        test_state_path,
+        test_string,
+    );
+    try std.testing.expect(initial_cost != null);
+
+    // BaseCost is 65535 in lego_trie.zig
+    const expected_initial_cost: u16 = 65535;
+    try std.testing.expectEqual(expected_initial_cost, initial_cost.?);
+
+    std.debug.print("Phase 5: Initial cost for '{s}': {d}\n", .{ test_string, initial_cost.? });
+
+    var controller = test_mp.ProcessController.init(std.testing.allocator);
+    defer controller.deinit();
+
+    const exe_path = "zig-out\\bin\\fcmd.exe";
+
+    // Insert the same string 10 times
+    const num_duplicates = 10;
+    var i: usize = 0;
+    while (i < num_duplicates) : (i += 1) {
+        const args = [_][]const u8{
+            exe_path,
+            "--test-mp",
+            "insert",
+            test_state_path,
+            test_string,
+        };
+
+        try controller.spawn(&args);
+    }
+
+    std.debug.print("Phase 5: Spawned {d} duplicate inserts...\n", .{num_duplicates});
+
+    // Wait for all processes
+    const exit_codes = try controller.waitAll();
+    defer std.testing.allocator.free(exit_codes);
+
+    const all_succeeded = test_mp.ProcessController.allSucceeded(exit_codes);
+    try std.testing.expect(all_succeeded);
+
+    // Get final cost - should be lower (each duplicate insert decreases cost by 1)
+    const final_cost = try test_mp.getStringCost(
+        std.testing.allocator,
+        test_state_path,
+        test_string,
+    );
+    try std.testing.expect(final_cost != null);
+
+    std.debug.print("Phase 5: Final cost after {d} duplicates: {d}\n", .{ num_duplicates, final_cost.? });
+
+    // Cost should have decreased (lower cost = higher priority)
+    // Each duplicate insert should decrease cost by 1
+    const expected_final_cost = expected_initial_cost - num_duplicates;
+    try std.testing.expectEqual(expected_final_cost, final_cost.?);
+
+    // Verify cost decreased
+    try std.testing.expect(final_cost.? < initial_cost.?);
+
+    std.debug.print("Phase 5: Score update test passed, cost decreased from {d} to {d} ✓\n", .{ initial_cost.?, final_cost.? });
+}
+
+test "Phase 5: concurrent score updates - multiple commands" {
+    const test_state_path = "test_state_concurrent_scores.frog";
+
+    // Clean up
+    std.fs.cwd().deleteFile(test_state_path) catch {};
+    defer std.fs.cwd().deleteFile(test_state_path) catch {};
+
+    // Create state file with multiple commands
+    var state_file = try test_mp.TestStateFile.create(
+        std.testing.allocator,
+        test_state_path,
+        512,
+    );
+    defer state_file.deinit();
+
+    const commands = [_][]const u8{
+        "git status",
+        "git commit",
+        "git push",
+        "npm install",
+        "cargo build",
+    };
+    try state_file.populate(&commands);
+
+    // Record initial costs
+    var initial_costs: [commands.len]u16 = undefined;
+    for (commands, 0..) |cmd, i| {
+        const cost = try test_mp.getStringCost(
+            std.testing.allocator,
+            test_state_path,
+            cmd,
+        );
+        try std.testing.expect(cost != null);
+        initial_costs[i] = cost.?;
+        std.debug.print("Phase 5: Initial cost for '{s}': {d}\n", .{ cmd, cost.? });
+    }
+
+    var controller = test_mp.ProcessController.init(std.testing.allocator);
+    defer controller.deinit();
+
+    const exe_path = "zig-out\\bin\\fcmd.exe";
+
+    // Simulate different usage patterns:
+    // "git status" - used 20 times (should have lowest cost = highest priority)
+    // "git commit" - used 10 times
+    // "git push" - used 5 times
+    // "npm install" - used 2 times
+    // "cargo build" - used 1 time (should have highest cost = lowest priority)
+
+    const usage_counts = [_]usize{ 20, 10, 5, 2, 1 };
+
+    for (commands, usage_counts) |cmd, count| {
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            const args = [_][]const u8{
+                exe_path,
+                "--test-mp",
+                "insert",
+                test_state_path,
+                cmd,
+            };
+
+            try controller.spawn(&args);
+        }
+    }
+
+    const total_inserts = 20 + 10 + 5 + 2 + 1;
+    std.debug.print("Phase 5: Spawned {d} inserts with varying frequencies...\n", .{total_inserts});
+
+    // Wait for all processes
+    const exit_codes = try controller.waitAll();
+    defer std.testing.allocator.free(exit_codes);
+
+    const all_succeeded = test_mp.ProcessController.allSucceeded(exit_codes);
+    try std.testing.expect(all_succeeded);
+
+    // Verify costs updated correctly
+    var final_costs: [commands.len]u16 = undefined;
+    for (commands, 0..) |cmd, i| {
+        const cost = try test_mp.getStringCost(
+            std.testing.allocator,
+            test_state_path,
+            cmd,
+        );
+        try std.testing.expect(cost != null);
+        final_costs[i] = cost.?;
+
+        const expected_cost = initial_costs[i] - @as(u16, @intCast(usage_counts[i]));
+        try std.testing.expectEqual(expected_cost, final_costs[i]);
+
+        std.debug.print("Phase 5: '{s}' used {d} times, cost: {d} -> {d}\n", .{
+            cmd,
+            usage_counts[i],
+            initial_costs[i],
+            final_costs[i],
+        });
+    }
+
+    // Verify ordering: most-used should have lowest cost
+    try std.testing.expect(final_costs[0] < final_costs[1]); // git status < git commit
+    try std.testing.expect(final_costs[1] < final_costs[2]); // git commit < git push
+    try std.testing.expect(final_costs[2] < final_costs[3]); // git push < npm install
+    try std.testing.expect(final_costs[3] < final_costs[4]); // npm install < cargo build
+
+    std.debug.print("Phase 5: Concurrent score updates passed, all costs correct and properly ordered ✓\n", .{});
+}
+
 test "Phase 4: CLI test mode - insert operation" {
     const test_state_path = "test_state_cli_insert.frog";
 

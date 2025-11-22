@@ -1,15 +1,20 @@
 # Test Suite Plan for Memory-Mapped Trie Corruption Detection
 
-## Current Status: Phase 5 Complete ✅ (November 22, 2025)
+## Current Status: Phase 5 Complete with Score Validation ✅ (November 22, 2025)
 
-**Latest Results:** 44/44 tests passing
+**Latest Results:** 46/46 tests passing
 - Phase 0: Basic Infrastructure ✅ (11 tests)
 - Phase 1: Single-Process Stress ✅ (6 tests)
 - Phase 2: Data Integrity ✅ (7 tests)
 - Phase 3: Edge Cases & Boundaries ✅ (7 tests)
 - Phase 4: Multi-Process Infrastructure ✅ (3 tests)
 - Phase 4.5: Multi-Process Concurrency ✅ (3 tests)
-- **Phase 5: Advanced Multi-Process Scenarios ✅ (3 tests)**
+- **Phase 5: Advanced Multi-Process Scenarios ✅ (5 tests)**
+  - Rapid insert stress
+  - Search during concurrent inserts
+  - Shared prefix stress
+  - **Score updates validation** ✅
+  - **Concurrent score updates** ✅
 - Legacy tests: 5 tests
 
 **Phase 4 Progress:**
@@ -24,10 +29,12 @@
 2. ✅ Concurrent readers + writer (4 readers + 10 inserts)
 3. ✅ Multiple writers (3 writers × 20 inserts = 60 concurrent writes)
 
-**Phase 5 Complete:** Three advanced multi-process scenarios:
+**Phase 5 Complete:** Five advanced multi-process scenarios including score validation:
 1. ✅ Rapid insert stress (5 processes × 50 inserts = 250 concurrent operations)
 2. ✅ Search during concurrent inserts (3 readers + 60 writer operations)
-3. ✅ Shared prefix stress (60 concurrent inserts with common prefix testing tall→wide promotions)
+3. ✅ Shared prefix stress (60 concurrent inserts forcing tall→wide promotions)
+4. ✅ Score updates - duplicate inserts (validates cost decreases correctly)
+5. ✅ Concurrent score updates (validates priority ordering under concurrent usage)
 
 **Next:** Consider file system integration tests (cold start, corruption detection, etc.).
 
@@ -429,6 +436,70 @@ The trie uses cross-process synchronization via:
 
 ---
 
+### **Phase 5 Extensions: Score/Cost Validation ✅ COMPLETE**
+
+**Goal:** Verify that the trie's priority scoring system works correctly under concurrent access, ensuring frequently-used commands are properly prioritized.
+
+**Score System Design:**
+- Each command starts with `BaseCost = 65535` on first insertion
+- Each subsequent use (duplicate insert) decreases cost by 1: `cost -= 1`
+- **Lower cost = Higher priority** (more frequently used)
+- Costs are sorted in ascending order within each trie node
+- Semaphore must protect cost updates during concurrent access
+
+**Completed Tests:**
+
+**Test 4: Score Updates - Duplicate Inserts ✅**
+- Creates state file with single command: "git status"
+- Verifies initial cost is `BaseCost = 65535`
+- Spawns 10 duplicate insert operations
+- Verifies final cost decreased to `65525` (65535 - 10)
+- **Result:** Cost correctly decreases by 1 per use ✓
+
+**Test 5: Concurrent Score Updates - Multiple Commands ✅**
+- Creates state file with 5 commands: git status, git commit, git push, npm install, cargo build
+- Simulates realistic usage patterns with varying frequencies:
+  - "git status" - 20 uses → cost 65515 (highest priority)
+  - "git commit" - 10 uses → cost 65525
+  - "git push" - 5 uses → cost 65530
+  - "npm install" - 2 uses → cost 65533
+  - "cargo build" - 1 use → cost 65534 (lowest priority)
+- Verifies all costs updated correctly: `expected_cost = 65535 - usage_count`
+- Verifies proper ordering: most-used has lowest cost
+- **Result:** All 5 commands have correct costs and proper priority ordering ✓
+
+**Implementation Details:**
+- Added `getStringCost()` helper in test_multiprocess.zig
+- Returns the cost value for a specific string in a state file
+- Walks the trie to find the string and retrieves its `walker.cost`
+- Returns `null` if string not found
+
+**Validation Approach:**
+1. Record initial costs before concurrent operations
+2. Spawn concurrent insert operations with varying frequencies
+3. Read final costs from state file
+4. Assert: `final_cost = initial_cost - number_of_uses`
+5. Assert: More frequently used commands have lower costs
+
+**Technical Notes:**
+- Cost updates protected by semaphore during concurrent inserts
+- Each process modifying the same command decreases its cost independently
+- Final cost reflects total number of uses across all processes
+- Sorting ensures commands appear in priority order based on cost
+
+**Test Results:** 2/2 score validation tests passing ✅
+**Total Phase 5 Tests:** 5/5 passing ✅
+**Total Test Count:** 46/46 tests passing (all phases)
+
+**Key Findings:**
+- Score system works correctly under concurrent access
+- Multiple processes can update costs for the same command without corruption
+- Cost ordering correctly reflects usage frequency
+- Semaphore coordination protects cost updates during concurrent writes
+- Priority system validated for real-world usage patterns (git commands, npm, cargo)
+
+---
+
 ## Proposed Test Categories (Future Phases)
 - **Round-trip verification:** Insert known data, read back, verify exact match
 - **Walker consistency:** Ensure walk_to() produces deterministic results
@@ -570,12 +641,20 @@ Based on the memory-mapped multi-process design:
 8. **Phase 6:** File system integration tests (cold start, corruption detection, etc.)
 9. **Phase 7:** Fuzzing and chaos engineering
 
-**Current Status:** 44/44 tests passing ✅
+**Current Status:** 46/46 tests passing ✅
 
 **Phase 5 Achievement:** Successfully stress-tested concurrent multi-process access with:
 - Rapid insert stress (250 concurrent write operations)
 - Search during concurrent inserts (readers operating safely during writes)
 - Shared prefix stress (60 concurrent inserts forcing tall→wide promotions)
+- **Score update validation (duplicate inserts correctly decrease cost)**
+- **Concurrent score updates (priority ordering maintained under concurrent usage)**
 
-All tests demonstrate robust semaphore coordination, structural integrity under concurrent load, and complete data consistency.
+All tests demonstrate robust semaphore coordination, structural integrity under concurrent load, complete data consistency, and **correct priority scoring under concurrent access**.
+
+**Score System Validated:**
+- Commands start at BaseCost (65535) and decrease by 1 per use
+- Lower cost = higher priority (more frequently used)
+- Concurrent processes correctly update costs without data races
+- Final ordering reflects true usage frequency across all processes
 
