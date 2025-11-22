@@ -136,6 +136,31 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_phase6_tests.step);
     test_step.dependOn(&run_phase7_tests.step);
 
+    // Individual test steps
+    const test_basic_step = b.step("test-basic", "Run basic trie tests");
+    test_basic_step.dependOn(&run_basic_tests.step);
+
+    const test_phase1_step = b.step("test-phase1", "Run phase 1 tests");
+    test_phase1_step.dependOn(&run_phase1_tests.step);
+
+    const test_phase2_step = b.step("test-phase2", "Run phase 2 tests");
+    test_phase2_step.dependOn(&run_phase2_tests.step);
+
+    const test_phase3_step = b.step("test-phase3", "Run phase 3 tests");
+    test_phase3_step.dependOn(&run_phase3_tests.step);
+
+    const test_phase4_step = b.step("test-phase4", "Run phase 4 tests");
+    test_phase4_step.dependOn(&run_phase4_tests.step);
+
+    const test_phase5_step = b.step("test-phase5", "Run phase 5 tests");
+    test_phase5_step.dependOn(&run_phase5_tests.step);
+
+    const test_phase6_step = b.step("test-phase6", "Run phase 6 tests");
+    test_phase6_step.dependOn(&run_phase6_tests.step);
+
+    const test_phase7_step = b.step("test-phase7", "Run phase 7 tests");
+    test_phase7_step.dependOn(&run_phase7_tests.step);
+
     const exe_check = b.addExecutable(.{
         .name = "bounce",
         .root_module = b.createModule(.{

@@ -3,29 +3,44 @@ const test_exports = @import("test_exports.zig");
 const lego_trie = test_exports.lego_trie;
 const data = test_exports.data;
 
+/// Test context with storage for the trie data
+pub const TestContext = struct {
+    mmap_context: data.MMapContext,
+    len: usize,
+    blocks: data.DumbList(lego_trie.TrieBlock),
+
+    /// Initialize and get the trie from this context
+    pub fn trie(self: *TestContext) lego_trie.Trie {
+        return lego_trie.Trie.init(&self.blocks);
+    }
+};
+
 /// Creates a minimal test context for in-memory testing (no file I/O)
-pub fn create_test_context() data.MMapContext {
-    // Return a context that will prevent any resize attempts
-    // Setting handle and semaphore to undefined/invalid values
-    return data.MMapContext{
-        .handle = undefined,
-        .semaphore = undefined,
-        .filepath = undefined,
+pub fn create_test_context() TestContext {
+    return TestContext{
+        .mmap_context = data.MMapContext{
+            .unload_event = undefined,
+            .reload_event = undefined,
+            .cross_process_semaphore = undefined,
+            .filepath = "",
+            .backing_data = undefined,
+        },
+        .len = 0,
+        .blocks = data.DumbList(lego_trie.TrieBlock){
+            .len = undefined,
+            .map = undefined,
+            .mmap_context = undefined,
+        },
     };
 }
 
 /// Creates a test trie with a fixed backing buffer
-pub fn create_test_trie(backing: []lego_trie.TrieBlock, context: *data.MMapContext) lego_trie.Trie {
-    var len: usize = 0;
-
-    var blocks = data.DumbList(lego_trie.TrieBlock){
-        .len = &len,
-        .map = backing,
-        .mmap_context = context,
-    };
-
-    blocks.len.* = 0;
-    return lego_trie.Trie.init(&blocks);
+/// This sets up the blocks and returns an initialized trie
+pub fn create_test_trie(backing: []lego_trie.TrieBlock, context: *TestContext) lego_trie.Trie {
+    context.blocks.len = &context.len;
+    context.blocks.map = backing;
+    context.blocks.mmap_context = &context.mmap_context;
+    return lego_trie.Trie.init(&context.blocks);
 }
 
 /// Validates the entire trie structure for consistency
