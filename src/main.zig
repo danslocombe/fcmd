@@ -21,12 +21,39 @@ fn printUsage() void {
         \\  fcmd --test-mp <operation> <args...>   Run multi-process test operation
         \\
         \\Multi-process test operations:
-        \\  insert <state_file> <string>           Insert string into state file
-        \\  search <state_file> <string>           Search for string in state file
-        \\  verify <state_file> <string1> ...      Verify all strings are in state file
+        \\  insert <state_path> <string>           Insert string into state file
+        \\  search <state_path> <string>           Search for string in state file
+        \\  verify <state_path> <string1> ...      Verify all strings are in state file
         \\
     ;
     std.debug.print("{s}\n", .{usage});
+}
+
+fn resolveAndCreateStatePath(state_path: []const u8) ![]const u8 {
+    const allocator = alloc.gpa.allocator();
+
+    // Convert to absolute path
+    const abs_path = std.fs.cwd().realpathAlloc(allocator, state_path) catch |err| {
+        // If path doesn't exist, try to create it
+        if (err == error.FileNotFound) {
+            // Create the directory
+            std.fs.cwd().makePath(state_path) catch |make_err| {
+                std.debug.print("Error creating directory '{s}': {}\n", .{ state_path, make_err });
+                return make_err;
+            };
+
+            // Try to resolve again after creating
+            return std.fs.cwd().realpathAlloc(allocator, state_path) catch |realpath_err| {
+                std.debug.print("Error resolving path '{s}' after creation: {}\n", .{ state_path, realpath_err });
+                return realpath_err;
+            };
+        }
+
+        std.debug.print("Error resolving path '{s}': {}\n", .{ state_path, err });
+        return err;
+    };
+
+    return abs_path;
 }
 
 fn runTestMode(args: []const []const u8) !u8 {
@@ -40,31 +67,42 @@ fn runTestMode(args: []const []const u8) !u8 {
 
     if (std.mem.eql(u8, operation_str, "insert")) {
         if (args.len < 5) {
-            std.debug.print("Error: insert requires <state_file> <string>\n", .{});
+            std.debug.print("Error: insert requires <state_path> <string>\n", .{});
             return 1;
         }
-        const state_file = args[3];
+        const state_path = args[3];
         const string_to_insert = args[4];
 
-        return try runInsertTest(state_file, string_to_insert);
+        //std.debug.print("Inserting {s} into {s}", .{ string_to_insert, state_path });
+        //std.debug.panic("Inserting {s} into {s}", .{ string_to_insert, state_path });
+        return try runInsertTest(state_path, string_to_insert);
     } else if (std.mem.eql(u8, operation_str, "search")) {
         if (args.len < 5) {
-            std.debug.print("Error: search requires <state_file> <string>\n", .{});
+            std.debug.print("Error: search requires <state_path> <string>\n", .{});
             return 1;
         }
-        const state_file = args[3];
+        const state_path = args[3];
         const string_to_search = args[4];
 
-        return try runSearchTest(state_file, string_to_search);
+        return try runSearchTest(state_path, string_to_search);
     } else if (std.mem.eql(u8, operation_str, "verify")) {
         if (args.len < 4) {
-            std.debug.print("Error: verify requires <state_file> <string1> [string2 ...]\n", .{});
+            std.debug.print("Error: verify requires <state_path> <string1> [string2 ...]\n", .{});
             return 1;
         }
-        const state_file = args[3];
+        const state_path = args[3];
         const strings_to_verify = args[4..];
 
-        return try runVerifyTest(state_file, strings_to_verify);
+        return try runVerifyTest(state_path, strings_to_verify);
+    } else if (std.mem.eql(u8, operation_str, "get-cost")) {
+        if (args.len < 5) {
+            std.debug.print("Error: get-cost requires <state_path> <string>\n", .{});
+            return 1;
+        }
+        const state_path = args[3];
+        const string_to_check = args[4];
+
+        return try runGetCostTest(state_path, string_to_check);
     } else {
         std.debug.print("Error: Unknown operation '{s}'\n", .{operation_str});
         printUsage();
@@ -72,10 +110,15 @@ fn runTestMode(args: []const []const u8) !u8 {
     }
 }
 
-fn runInsertTest(state_file: []const u8, string: []const u8) !u8 {
+fn runInsertTest(state_path: []const u8, string: []const u8) !u8 {
+    const abs_path = resolveAndCreateStatePath(state_path) catch {
+        return 1;
+    };
+    defer alloc.gpa.allocator().free(abs_path);
+
     // Open the state file using memory mapping (same as main path)
     var context = data.GlobalContext{};
-    data.BackingData.init(state_file, &context);
+    data.BackingData.init(abs_path, &context);
 
     // Create trie view from memory-mapped data
     var trie = lego_trie.Trie.init(&context.backing_data.trie_blocks);
@@ -87,14 +130,19 @@ fn runInsertTest(state_file: []const u8, string: []const u8) !u8 {
         return 1;
     };
 
-    std.debug.print("Successfully inserted '{s}' into {s}\n", .{ string, state_file });
+    std.debug.print("Successfully inserted '{s}' into {s}\n", .{ string, state_path });
     return 0;
 }
 
-fn runSearchTest(state_file: []const u8, string: []const u8) !u8 {
+fn runSearchTest(state_path: []const u8, string: []const u8) !u8 {
+    const abs_path = resolveAndCreateStatePath(state_path) catch {
+        return 1;
+    };
+    defer alloc.gpa.allocator().free(abs_path);
+
     // Open the state file using memory mapping (same as main path)
     var context = data.GlobalContext{};
-    data.BackingData.init(state_file, &context);
+    data.BackingData.init(abs_path, &context);
 
     // Create trie view from memory-mapped data
     var trie = lego_trie.Trie.init(&context.backing_data.trie_blocks);
@@ -102,27 +150,54 @@ fn runSearchTest(state_file: []const u8, string: []const u8) !u8 {
 
     var walker = lego_trie.TrieWalker.init(view, string);
     if (walker.walk_to() and walker.char_id == string.len) {
-        std.debug.print("Found '{s}' in {s}\n", .{ string, state_file });
+        std.debug.print("Found '{s}' in {s}\n", .{ string, state_path });
         return 0;
     } else {
-        std.debug.print("Not found: '{s}' in {s}\n", .{ string, state_file });
+        std.debug.print("Not found: '{s}' in {s}\n", .{ string, state_path });
         return 1;
     }
 }
 
-fn runVerifyTest(state_file: []const u8, strings: []const []const u8) !u8 {
+fn runVerifyTest(state_path: []const u8, strings: []const []const u8) !u8 {
     const allocator = alloc.gpa.allocator();
 
-    const all_found = test_mp.verifyStringsInStateFile(allocator, state_file, strings) catch |err| {
+    const abs_path = resolveAndCreateStatePath(state_path) catch {
+        return 1;
+    };
+    defer allocator.free(abs_path);
+
+    const all_found = test_mp.verifyStringsInStateFile(allocator, abs_path, strings) catch |err| {
         std.debug.print("Error verifying strings: {}\n", .{err});
         return 1;
     };
 
     if (all_found) {
-        std.debug.print("All {d} strings verified in {s}\n", .{ strings.len, state_file });
+        std.debug.print("All {d} strings verified in {s}\n", .{ strings.len, state_path });
         return 0;
     } else {
-        std.debug.print("Verification failed for {s}\n", .{state_file});
+        std.debug.print("Verification failed for {s}\n", .{state_path});
+        return 1;
+    }
+}
+
+fn runGetCostTest(state_path: []const u8, string: []const u8) !u8 {
+    const allocator = alloc.gpa.allocator();
+
+    const abs_path = resolveAndCreateStatePath(state_path) catch {
+        return 1;
+    };
+    defer allocator.free(abs_path);
+
+    const cost = test_mp.getStringCost(allocator, abs_path, string) catch |err| {
+        std.debug.print("Error getting cost: {}\n", .{err});
+        return 1;
+    };
+
+    if (cost) |c| {
+        std.debug.print("{d}\n", .{c});
+        return 0;
+    } else {
+        std.debug.print("String not found: '{s}'\n", .{string});
         return 1;
     }
 }
