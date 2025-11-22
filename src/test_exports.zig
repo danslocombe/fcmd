@@ -9,6 +9,26 @@ const std = @import("std");
 
 // Test helpers for trie validation
 const TestHelpers = struct {
+    /// Creates a minimal test context for in-memory testing (no file I/O)
+    fn create_test_context() data.MMapContext {
+        // Return a minimal context - it won't be used for resize in fixed-array tests
+        // The fields will be uninitialized but that's OK since we won't trigger resize
+        return data.MMapContext{};
+    }
+
+    /// Creates a test trie with a fixed backing buffer
+    fn create_test_trie(backing: []lego_trie.TrieBlock, context: *data.MMapContext) lego_trie.Trie {
+        var len: usize = 0;
+
+        var blocks = data.DumbList(lego_trie.TrieBlock){
+            .len = &len,
+            .map = backing,
+            .mmap_context = context,
+        };
+
+        blocks.len.* = 0;
+        return lego_trie.Trie.init(&blocks);
+    }
     /// Validates the entire trie structure for consistency
     /// Checks: no cycles, valid pointers, proper bounds
     fn validate_trie_structure(trie: *lego_trie.Trie) !void {
@@ -78,22 +98,12 @@ const TestHelpers = struct {
             try validate_can_find(trie, needle);
         }
     }
-
-    /// Creates a test trie with a fixed backing buffer
-    fn create_test_trie(blocks: *data.DumbList(lego_trie.TrieBlock)) lego_trie.Trie {
-        blocks.len.* = 0;
-        return lego_trie.Trie.init(blocks);
-    }
 };
 
 test "basic insertion - insert 10 strings and verify all findable" {
     var backing: [2048]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){
-        .len = &len,
-        .map = &backing,
-    };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     const strings = [_][]const u8{
         "git status",
@@ -123,9 +133,8 @@ test "basic insertion - insert 10 strings and verify all findable" {
 
 test "duplicate insertion - verify cost updates" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     const test_string = "git status";
 
@@ -158,9 +167,8 @@ test "duplicate insertion - verify cost updates" {
 
 test "tall to wide promotion - insert 3 strings with GLOBAL_ prefix" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // These strings force a tall->wide promotion based on existing test
     const strings = [_][]const u8{
@@ -187,9 +195,8 @@ test "tall to wide promotion - insert 3 strings with GLOBAL_ prefix" {
 
 test "node spillover - insert enough strings to cause sibling allocation" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // WideNodeLen is 4, so inserting 5+ strings with different prefixes
     // should cause spillover to siblings
@@ -222,9 +229,8 @@ test "node spillover - insert enough strings to cause sibling allocation" {
 
 test "long string insertion - strings longer than TallStringLen" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // TallStringLen is 22, so these should require multiple blocks
     const strings = [_][]const u8{
@@ -251,9 +257,8 @@ test "long string insertion - strings longer than TallStringLen" {
 
 test "common prefix handling - deep tree structure" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // Strings with long common prefixes create deep trees
     const strings = [_][]const u8{
@@ -280,9 +285,8 @@ test "common prefix handling - deep tree structure" {
 
 test "prefix search - partial matches return extensions" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     var view = trie.to_view();
     try view.insert("testing");
@@ -298,9 +302,8 @@ test "prefix search - partial matches return extensions" {
 
 test "empty trie operations - search in empty trie returns false" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     const view = trie.to_view();
     var walker = lego_trie.TrieWalker.init(view, "anything");
@@ -311,9 +314,8 @@ test "empty trie operations - search in empty trie returns false" {
 
 test "single character strings" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     const strings = [_][]const u8{ "a", "b", "c", "d", "e" };
 
@@ -331,9 +333,8 @@ test "single character strings" {
 
 test "stress test - insert 100 varied strings" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     var strings: std.ArrayList([]const u8) = .empty;
     defer strings.deinit(std.testing.allocator);
@@ -374,9 +375,8 @@ test "stress test - insert 100 varied strings" {
 
 test "Phase 1: heavy insertion - 1000 commands" {
     var backing: [2048]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     var strings: std.ArrayList([]const u8) = .empty;
     defer strings.deinit(std.testing.allocator);
@@ -413,9 +413,8 @@ test "Phase 1: heavy insertion - 1000 commands" {
 
 test "Phase 1: very long strings - 100+ character paths" {
     var backing: [2048]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     var strings: std.ArrayList([]const u8) = .empty;
     defer strings.deinit(std.testing.allocator);
@@ -461,9 +460,8 @@ test "Phase 1: very long strings - 100+ character paths" {
 
 test "Phase 1: alternating tall/wide promotions" {
     var backing: [1024]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     var strings: std.ArrayList([]const u8) = .empty;
     defer strings.deinit(std.testing.allocator);
@@ -512,9 +510,8 @@ test "Phase 1: alternating tall/wide promotions" {
 
 test "Phase 1: deep trie - long common prefixes" {
     var backing: [1024]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     var strings: std.ArrayList([]const u8) = .empty;
     defer strings.deinit(std.testing.allocator);
@@ -566,9 +563,8 @@ test "Phase 1: deep trie - long common prefixes" {
 
 test "Phase 1: wide trie - diverse first characters" {
     var backing: [1024]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     var strings: std.ArrayList([]const u8) = .empty;
     defer strings.deinit(std.testing.allocator);
@@ -619,9 +615,8 @@ test "Phase 1: wide trie - diverse first characters" {
 
 test "Phase 2: round-trip verification - exact data recovery" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     const test_data = [_][]const u8{
         "exact_string_1",
@@ -658,9 +653,8 @@ test "Phase 2: round-trip verification - exact data recovery" {
 
 test "Phase 2: walker consistency - deterministic results" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     var view = trie.to_view();
     try view.insert("deterministic_test");
@@ -690,9 +684,8 @@ test "Phase 2: walker consistency - deterministic results" {
 
 test "Phase 2: cost consistency - monotonic decrease on duplicates" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     const test_string = "cost_test_string";
     var previous_cost: usize = std.math.maxInt(usize);
@@ -715,9 +708,8 @@ test "Phase 2: cost consistency - monotonic decrease on duplicates" {
 
 test "Phase 2: sibling chain validation - no cycles or dangles" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // Insert enough to cause sibling chains
     const strings = [_][]const u8{
@@ -765,9 +757,8 @@ test "Phase 2: sibling chain validation - no cycles or dangles" {
 
 test "Phase 2: prefix extension accuracy" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     const test_cases = [_]struct {
         full: []const u8,
@@ -796,9 +787,8 @@ test "Phase 2: prefix extension accuracy" {
 
 test "Phase 2: duplicate handling preserves integrity" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     const test_string = "duplicate_test";
     const initial_block_count = TestHelpers.count_total_nodes(&trie);
@@ -823,9 +813,8 @@ test "Phase 2: duplicate handling preserves integrity" {
 
 test "Phase 2: mixed operations consistency" {
     var backing: [1024]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     var inserted: std.ArrayList([]const u8) = .empty;
     defer inserted.deinit(std.testing.allocator);
@@ -858,9 +847,8 @@ test "Phase 2: mixed operations consistency" {
 
 test "Phase 3: empty string handling" {
     var backing: [256]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // Insert empty string
     var view = trie.to_view();
@@ -880,9 +868,8 @@ test "Phase 3: empty string handling" {
 
 test "Phase 3: maximum string length boundaries (TallStringLen = 22)" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // Test strings at boundary: 21, 22, 23 characters
     const str_21 = "a" ** 21; // Just under
@@ -905,9 +892,8 @@ test "Phase 3: maximum string length boundaries (TallStringLen = 22)" {
 
 test "Phase 3: node capacity boundaries - WideNodeLen (4) and TallNodeLen (1)" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // Test exactly WideNodeLen (4) insertions with different prefixes
     const wide_test = [_][]const u8{ "w1", "w2", "w3", "w4" };
@@ -932,9 +918,8 @@ test "Phase 3: node capacity boundaries - WideNodeLen (4) and TallNodeLen (1)" {
 
 test "Phase 3: special characters - unicode, spaces, symbols" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     const special_strings = [_][]const u8{
         "hello world", // spaces
@@ -963,9 +948,8 @@ test "Phase 3: special characters - unicode, spaces, symbols" {
 
 test "Phase 3: identical prefix stress" {
     var backing: [1024]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     var strings: std.ArrayList([]const u8) = .empty;
     defer strings.deinit(std.testing.allocator);
@@ -1002,9 +986,8 @@ test "Phase 3: identical prefix stress" {
 
 test "Phase 3: single character differences" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // Strings differing by one character at various positions
     const strings = [_][]const u8{
@@ -1033,9 +1016,8 @@ test "Phase 3: single character differences" {
 
 test "Phase 3: case sensitivity" {
     var backing: [512]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){ .len = &len, .map = &backing };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // Test case variations
     const strings = [_][]const u8{
@@ -2276,12 +2258,8 @@ test "Phase 7: random operation fuzzing - 10000 operations with seed" {
     const random = prng.random();
 
     var backing: [8192]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){
-        .len = &len,
-        .map = &backing,
-    };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // Track inserted strings for verification
     var inserted: std.ArrayList([]const u8) = .empty;
@@ -2362,12 +2340,8 @@ test "Phase 7: property-based invariants - structural consistency" {
     var prng = std.Random.DefaultPrng.init(seed);
 
     var backing: [16384]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){
-        .len = &len,
-        .map = &backing,
-    };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // Property: After any sequence of operations, certain invariants must hold
     // 1. All inserted strings remain findable
@@ -2416,12 +2390,8 @@ test "Phase 7: property-based invariants - structural consistency" {
 
 test "Phase 7: stress pattern generation - adversarial inputs" {
     var backing: [16384]lego_trie.TrieBlock = undefined;
-    var len: usize = 0;
-    var blocks = data.DumbList(lego_trie.TrieBlock){
-        .len = &len,
-        .map = &backing,
-    };
-    var trie = TestHelpers.create_test_trie(&blocks);
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // Pattern 1: Many strings with identical prefixes (stresses tall→wide promotions)
     const common_prefix = "STRESS_TEST_COMMON_PREFIX_";
@@ -2487,12 +2457,8 @@ test "Phase 7: deterministic replay with seed - reproducibility" {
     // First run
     var prng1 = std.Random.DefaultPrng.init(seed);
     var backing1: [1024]lego_trie.TrieBlock = undefined;
-    var len1: usize = 0;
-    var blocks1 = data.DumbList(lego_trie.TrieBlock){
-        .len = &len1,
-        .map = &backing1,
-    };
-    var trie1 = TestHelpers.create_test_trie(&blocks1);
+    var context1 = TestHelpers.create_test_context();
+    var trie1 = TestHelpers.create_test_trie(&backing1, &context1);
 
     var inserted1: std.ArrayList([]const u8) = .empty;
     defer {
@@ -2517,12 +2483,8 @@ test "Phase 7: deterministic replay with seed - reproducibility" {
     // Second run with same seed
     var prng2 = std.Random.DefaultPrng.init(seed);
     var backing2: [1024]lego_trie.TrieBlock = undefined;
-    var len2: usize = 0;
-    var blocks2 = data.DumbList(lego_trie.TrieBlock){
-        .len = &len2,
-        .map = &backing2,
-    };
-    var trie2 = TestHelpers.create_test_trie(&blocks2);
+    var context2 = TestHelpers.create_test_context();
+    var trie2 = TestHelpers.create_test_trie(&backing2, &context2);
 
     var inserted2: std.ArrayList([]const u8) = .empty;
     defer {

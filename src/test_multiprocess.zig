@@ -130,9 +130,13 @@ pub const TestStateFile = struct {
 
         const trie_blocks: []lego_trie.TrieBlock = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, trieblock_bytes));
 
+        // Create a minimal MMapContext for in-memory testing
+        var test_context = data.MMapContext{};
+
         var blocks_list = data.DumbList(lego_trie.TrieBlock){
             .len = &len,
             .map = trie_blocks,
+            .mmap_context = &test_context,
         };
 
         var trie = lego_trie.Trie.init(&blocks_list);
@@ -257,17 +261,12 @@ pub fn getStringCost(
 ) !?u16 {
     _ = allocator;
 
-    const state_file_c = alloc.tmp_for_c_introp(state_file);
-
     // Open the state file using memory mapping (same as main path)
-    var backing_data = data.BackingData.open_test_state_file(state_file_c) catch |err| {
-        log.log_debug("Error opening state file '{s}': {}\n", .{ state_file, err });
-        return null;
-    };
-    defer backing_data.close_test_state_file();
+    var context = data.MMapContext{};
+    data.BackingData.init(state_file, &context);
 
     // Create trie view from memory-mapped data
-    var trie = lego_trie.Trie.init(&backing_data.trie_blocks);
+    var trie = lego_trie.Trie.init(&context.backing_data.trie_blocks);
     const view = trie.to_view();
 
     // Walk to the string and get its cost

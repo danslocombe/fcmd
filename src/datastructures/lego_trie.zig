@@ -634,9 +634,11 @@ test "insert single" {
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
+    var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
+        .mmap_context = &test_context,
     };
 
     var trie = Trie.init(&blocks);
@@ -666,9 +668,11 @@ test "insert double" {
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
+    var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
+        .mmap_context = &test_context,
     };
 
     var trie = Trie.init(&blocks);
@@ -713,11 +717,13 @@ test "insert promoting leaf to node" {
         "bug", "buggin",
     };
 
-    var backing: [16]TrieBlock = undefined;
+    var backing: [1024]TrieBlock = undefined;
     var len: usize = 0;
+    var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
+        .mmap_context = &test_context,
     };
 
     var trie = Trie.init(&blocks);
@@ -745,9 +751,11 @@ test "insert longstring" {
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
+    var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
+        .mmap_context = &test_context,
     };
 
     var trie = Trie.init(&blocks);
@@ -790,9 +798,11 @@ test "insert splillover" {
 
     var backing: [32]TrieBlock = undefined;
     var len: usize = 0;
+    var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
+        .mmap_context = &test_context,
     };
 
     var trie = Trie.init(&blocks);
@@ -829,9 +839,11 @@ test "iterate spillover" {
 
     var backing: [32]TrieBlock = undefined;
     var len: usize = 0;
+    var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
+        .mmap_context = &test_context,
     };
 
     var trie = Trie.init(&blocks);
@@ -870,9 +882,11 @@ test "promote tall to wide" {
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
+    var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
+        .mmap_context = &test_context,
     };
 
     var trie = Trie.init(&blocks);

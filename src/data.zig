@@ -27,6 +27,9 @@ const semaphore_name: [:0]const u8 = "Local\\fcmd_data_semaphore";
 
 const initial_size = 256;
 
+// Alias for backward compatibility and clarity
+pub const GlobalContext = MMapContext;
+
 pub const MMapContext = struct {
     data_mutex: std.Thread.Mutex = .{},
 
