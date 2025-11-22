@@ -45,7 +45,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    
+
     corruption_tests.linkLibC();
 
     const run_corruption_tests = b.addRunArtifact(corruption_tests);
