@@ -211,6 +211,7 @@ pub const BackingData = struct {
 
         var trie_blocks: DumbList(lego_trie.TrieBlock) = undefined;
         trie_blocks.len = @ptrCast(@alignCast(map.ptr + 16));
+        trie_blocks.mmap_context = mmap_context;
         const start = 16 + @sizeOf(usize);
         const trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
         const end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
@@ -321,6 +322,7 @@ pub const BackingData = struct {
         mmap_context.backing_data.size_in_bytes_ptr = @ptrCast(@alignCast(map.ptr + 8));
 
         mmap_context.backing_data.trie_blocks = undefined;
+        mmap_context.backing_data.trie_blocks.mmap_context = mmap_context;
         mmap_context.backing_data.trie_blocks.len = @ptrCast(@alignCast(map.ptr + 16));
         const start = 16 + @sizeOf(usize);
         const trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));

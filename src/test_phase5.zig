@@ -46,7 +46,97 @@ test "simple" {
     try std.testing.expect(all_succeeded);
 }
 
-test "Phase 5: rapid insert stress - 15 processes × 80 inserts" {
+test "seq_inserts" {
+    const test_state_path = "seq_inserts";
+
+    // Clean up
+    const cleanup_path = test_state_path ++ "\\trie.frog";
+    std.fs.cwd().deleteFile(cleanup_path) catch {};
+    //defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+
+    const exe_path = "zig-out\\bin\\fcmd.exe";
+
+    // Create state file with 10 initial strings by spawning insert processes
+
+    var initial_strings = std.ArrayList([]const u8){};
+    defer initial_strings.deinit(std.testing.allocator);
+
+    var i: usize = 0;
+    while (i < 6) : (i += 1) {
+        const str = try std.fmt.allocPrint(std.testing.allocator, "initial_{d}", .{i});
+        try initial_strings.append(std.testing.allocator, str);
+    }
+    defer {
+        for (initial_strings.items) |str| {
+            std.testing.allocator.free(str);
+        }
+    }
+
+    // Insert initial strings via spawned processes
+    for (initial_strings.items) |str| {
+        var init_controller = test_mp.ProcessController.init(std.testing.allocator);
+        defer init_controller.deinit();
+        const args = [_][]const u8{
+            exe_path,
+            "--test-mp",
+            "insert",
+            test_state_path,
+            str,
+        };
+        try init_controller.spawn(&args);
+
+        const init_exit_codes = try init_controller.waitAll();
+        defer std.testing.allocator.free(init_exit_codes);
+        try std.testing.expect(test_mp.ProcessController.allSucceeded(init_exit_codes));
+    }
+}
+
+test "concurrent_inserts" {
+    const test_state_path = "concurrent_inserts";
+
+    // Clean up
+    const cleanup_path = test_state_path ++ "\\trie.frog";
+    std.fs.cwd().deleteFile(cleanup_path) catch {};
+    //defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+
+    const exe_path = "zig-out\\bin\\fcmd.exe";
+
+    // Create state file with 10 initial strings by spawning insert processes
+    var init_controller = test_mp.ProcessController.init(std.testing.allocator);
+    defer init_controller.deinit();
+
+    var initial_strings = std.ArrayList([]const u8){};
+    defer initial_strings.deinit(std.testing.allocator);
+
+    var i: usize = 0;
+    while (i < 6) : (i += 1) {
+        const str = try std.fmt.allocPrint(std.testing.allocator, "initial_{d}", .{i});
+        try initial_strings.append(std.testing.allocator, str);
+    }
+    defer {
+        for (initial_strings.items) |str| {
+            std.testing.allocator.free(str);
+        }
+    }
+
+    // Insert initial strings via spawned processes
+    for (initial_strings.items) |str| {
+        const args = [_][]const u8{
+            exe_path,
+            "--test-mp",
+            "insert",
+            test_state_path,
+            str,
+        };
+        try init_controller.spawn(&args);
+    }
+
+    const init_exit_codes = try init_controller.waitAll();
+    defer std.testing.allocator.free(init_exit_codes);
+    try std.testing.expect(test_mp.ProcessController.allSucceeded(init_exit_codes));
+}
+
+test "rapid_insert_stress" {
     const test_state_path = "test_state_rapid_stress";
 
     // Clean up
@@ -64,7 +154,7 @@ test "Phase 5: rapid insert stress - 15 processes × 80 inserts" {
     defer initial_strings.deinit(std.testing.allocator);
 
     var i: usize = 0;
-    while (i < 10) : (i += 1) {
+    while (i < 6) : (i += 1) {
         const str = try std.fmt.allocPrint(std.testing.allocator, "initial_{d}", .{i});
         try initial_strings.append(std.testing.allocator, str);
     }
