@@ -156,7 +156,7 @@ pub fn main() !void {
     windows.setup_console();
     windows.write_console("Fcmd v0.01\n");
 
-    data.init_global_context(state_dir_override);
+    _ = data.init_global_context(state_dir_override);
 
     g_shell = Shell.init(&data.g_backing_data.trie_blocks);
 
