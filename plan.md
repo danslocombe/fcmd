@@ -1,15 +1,23 @@
 # Test Suite Plan for Memory-Mapped Trie Corruption Detection
 
-## Current Status: Phase 3 Complete ✅
+## Current Status: Phase 4 Infrastructure Complete ✅ (November 22, 2025)
 
-**Latest Results:** 36/36 tests passing (November 22, 2025)
+**Latest Results:** 39/39 tests passing
 - Phase 0: Basic Infrastructure ✅ (11 tests)
 - Phase 1: Single-Process Stress ✅ (6 tests)
 - Phase 2: Data Integrity ✅ (7 tests)
 - Phase 3: Edge Cases & Boundaries ✅ (7 tests)
+- **Phase 4: Multi-Process Infrastructure ✅ (3 tests)**
 - Legacy tests: 5 tests
 
-**Next:** Continue with additional validation and stress test combinations, then move toward multi-process testing.
+**Phase 4 Progress:**
+- ✅ Test state file creation and serialization
+- ✅ CLI test mode (--test-mp insert/search/verify)
+- ✅ Basic infrastructure tests
+- 🚧 Process spawning and coordination (in progress)
+- ⏳ Full multi-process concurrency tests (pending)
+
+**Next:** Implement ProcessController and actual multi-process test scenarios.
 
 ## Overview
 The trie uses a complex memory-mapped file system with:
@@ -173,12 +181,122 @@ Successfully implemented basic testing infrastructure:
 ### **1. Single-Process Stress Tests ✅ COMPLETE**
 See Phase 1 above for detailed status.
 
-### **2. Multi-Process Concurrency Tests**
-- **Simultaneous readers:** Multiple processes reading while one writes
-- **Resize during read:** One process triggers resize while others are walking the trie
-- **Race on semaphore:** Multiple processes trying to insert simultaneously
-- **Background unloader stress:** Rapid acquire/release cycles
-- **Zombie process simulation:** Kill a process while it holds the semaphore
+### **Phase 4: Multi-Process Concurrency Tests 🚧 IN PROGRESS**
+
+**Goal:** Test the trie under multi-process access patterns to detect race conditions, synchronization bugs, and corruption from concurrent operations.
+
+**Architecture Overview:**
+The trie uses cross-process synchronization via:
+- Named semaphore (`Local\\fcmd_data_semaphore`) - coordinates exclusive file access
+- Named events (`fcmd_unload_data`, `fcmd_reload_data`) - signals background unload/reload
+- Memory-mapped file (`trie.frog`) - shared state across processes
+- Background thread per process - handles dynamic unload/reload on resize
+
+**Test Framework Design:**
+
+1. **Test State Files:**
+   - Serialize trie state to a standalone `.frog` file
+   - Each test creates a clean state file with known data
+   - Processes load from this file instead of global state
+   - Format: same as runtime (magic number, version, size, trie blocks)
+
+2. **Process Controller:**
+   - Spawn multiple fcmd.exe processes with special test mode
+   - Each process runs a specific operation sequence
+   - Operations: INSERT, SEARCH, WALK, RESIZE_TRIGGER
+   - Synchronization barriers between phases
+   - Collect results from each process (success/failure, data found, errors)
+
+3. **Test Operations:**
+   - `test_insert <state_file> <string>` - Insert and verify
+   - `test_search <state_file> <string>` - Search and report result
+   - `test_walk <state_file> <prefix>` - Walk and collect extensions
+   - `test_stress <state_file> <count>` - Rapid insertions
+   - `test_verify <state_file> <expected_strings_file>` - Bulk verification
+
+4. **Validation Strategy:**
+   - Before: Create known-good state file
+   - During: Parallel process operations with timing control
+   - After: All processes verify complete data set is intact
+   - Check: No corruption (structure valid, all strings findable)
+
+**Detailed Test Plan:**
+
+**Test 1: Simultaneous Readers**
+- Setup: State file with 100 pre-inserted strings
+- Spawn: 5 reader processes searching for different strings
+- Expected: All searches succeed, no corruption
+
+**Test 2: Concurrent Readers + 1 Writer**
+- Setup: State file with 50 strings
+- Spawn: 4 readers continuously searching, 1 writer inserting new strings
+- Expected: Readers find their strings, writer succeeds, final state contains all
+
+**Test 3: Multiple Writers (Semaphore Stress)**
+- Setup: Empty state file
+- Spawn: 3 writers each inserting 20 unique strings
+- Expected: All 60 strings present in final state, no duplicates lost
+
+**Test 4: Resize During Read**
+- Setup: State file near capacity (large backing array mostly full)
+- Spawn: 2 readers actively walking, 1 writer triggering resize by filling remaining space
+- Expected: Background unloader handles resize, readers recover, all data intact
+
+**Test 5: Background Unloader Rapid Cycling**
+- Setup: State file with 50 strings
+- Spawn: 10 processes rapidly inserting (forcing multiple resizes)
+- Expected: All processes handle unload/reload events correctly, no data loss
+
+**Test 6: Zombie Process Simulation**
+- Setup: State file with known data
+- Spawn: Process that acquires semaphore, then forcibly killed
+- Recovery: Timeout mechanism or manual semaphore reset
+- Expected: Other processes can eventually continue (may require retry logic)
+
+**Test 7: Race on Sibling Allocation**
+- Setup: State file with root node at capacity (4 wide nodes)
+- Spawn: 2 writers simultaneously inserting strings that require sibling allocation
+- Expected: Proper synchronization prevents double allocation
+
+**Implementation Steps:**
+
+1. ✅ **Update plan.md** - Document Phase 4 architecture (this section)
+
+2. ✅ **Create Test Harness Module** (`src/test_multiprocess.zig`):
+   - ✅ State file creation/loading utilities (TestStateFile)
+   - ✅ Test operation execution functions
+   - ✅ Validation helpers for multi-process context (verifyStringsInStateFile)
+   - ✅ ProcessController structure (spawn/waitAll/allSucceeded)
+
+3. ✅ **Add CLI Test Mode** (extend `src/main.zig`):
+   - ✅ `fcmd --test-mp <operation> <state_file> [args...]`
+   - ✅ Operations: insert, search, verify
+   - ✅ Exit with status code (0 = success, 1 = failure)
+
+4. ✅ **Build Initial Infrastructure Tests** (in `src/test_exports.zig`):
+   - ✅ Test state file creation and population
+   - ✅ Verify state file reading
+   - ✅ CLI test mode infrastructure validation
+
+5. 🚧 **Implement Process Spawning** (next step):
+   - Use ProcessController to spawn multiple fcmd.exe instances
+   - Coordinate timing with barriers/delays
+   - Collect and verify exit codes
+   - Test concurrent readers scenario
+
+6. ⏳ **Implement Full Test Cases** (pending):
+   - Simultaneous readers test
+   - Concurrent readers + writer test
+   - Multiple writers (semaphore stress) test
+   - Resize during read test
+   - Background unloader rapid cycling test
+
+**Current Status:** Infrastructure complete, ready for process spawning implementation.
+
+**Deferred Considerations:**
+- Timeout handling for zombie processes (may require OS-level semaphore inspection)
+- Stress testing with >10 processes (resource limits)
+- Cross-machine testing (network file systems)
 
 ### **3. Data Integrity Tests**
 - **Round-trip verification:** Insert known data, read back, verify exact match
