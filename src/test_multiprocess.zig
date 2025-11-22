@@ -263,7 +263,7 @@ pub const ProcessController = struct {
     pub fn init(allocator: std.mem.Allocator) ProcessController {
         return .{
             .allocator = allocator,
-            .processes = std.ArrayList(std.process.Child).init(allocator),
+            .processes = std.ArrayList(std.process.Child){},
         };
     }
 
@@ -271,7 +271,7 @@ pub const ProcessController = struct {
         for (self.processes.items) |*proc| {
             _ = proc.kill() catch {};
         }
-        self.processes.deinit();
+        self.processes.deinit(self.allocator);
     }
 
     /// Spawn a test process with given arguments
@@ -281,7 +281,7 @@ pub const ProcessController = struct {
         child.stderr_behavior = .Inherit;
 
         try child.spawn();
-        try self.processes.append(child);
+        try self.processes.append(self.allocator, child);
     }
 
     /// Wait for all processes to complete and collect exit codes
