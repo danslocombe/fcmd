@@ -255,6 +255,16 @@ pub fn verifyStringsInStateFile(
     return true;
 }
 
+/// Helper to verify a single string is findable in a state file
+pub fn verifyStringInStateFile(
+    allocator: std.mem.Allocator,
+    state_file: []const u8,
+    needle: []const u8,
+) !bool {
+    const strings = [_][]const u8{needle};
+    return verifyStringsInStateFile(allocator, state_file, &strings);
+}
+
 /// Helper to get the cost (priority score) of a specific string in a state file
 /// Returns the cost value, or null if string not found
 /// Lower cost = higher priority (more frequently used)

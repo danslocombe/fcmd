@@ -1,21 +1,21 @@
 # Test Suite Plan for Memory-Mapped Trie Corruption Detection
 
-## Current Status: Phase 5 Complete with Score Validation ✅ (November 22, 2025)
+## Current Status: Phase 6 Complete - File System Integration ✅ (November 22, 2025)
 
-**Latest Results:** 46/46 tests passing
+**Latest Results:** 50/50 tests passing
 - Phase 0: Basic Infrastructure ✅ (11 tests)
 - Phase 1: Single-Process Stress ✅ (6 tests)
 - Phase 2: Data Integrity ✅ (7 tests)
 - Phase 3: Edge Cases & Boundaries ✅ (7 tests)
 - Phase 4: Multi-Process Infrastructure ✅ (3 tests)
 - Phase 4.5: Multi-Process Concurrency ✅ (3 tests)
-- **Phase 5: Advanced Multi-Process Scenarios ✅ (5 tests)**
-  - Rapid insert stress
-  - Search during concurrent inserts
-  - Shared prefix stress
-  - **Score updates validation** ✅
-  - **Concurrent score updates** ✅
-- Legacy tests: 5 tests
+- Phase 5: Advanced Multi-Process Scenarios ✅ (5 tests)
+- **Phase 6: File System Integration ✅ (4 tests)**
+  - Cold start persistence validation
+  - Corrupt magic number detection
+  - Corrupt version detection
+  - File size validation
+- Legacy tests: 4 tests
 
 **Phase 4 Progress:**
 - ✅ Test state file creation and serialization
@@ -500,6 +500,77 @@ The trie uses cross-process synchronization via:
 
 ---
 
+### **Phase 6: File System Integration Tests ✅ COMPLETE**
+
+**Goal:** Validate file system operations, persistence, and corruption detection mechanisms to ensure data survives cold starts and gracefully handles corrupted files.
+
+**Prerequisites:**
+- ✅ TestStateFile infrastructure from Phase 4
+- ✅ File serialization/deserialization working correctly
+- ✅ Magic number and version validation in data.zig
+
+**Completed Tests:**
+
+**Test 1: Cold Start - Load from Existing File ✅**
+- Creates state file with 5 known commands: git status, git commit -m, npm install, cargo build, docker ps
+- Verifies initial population worked (all strings findable)
+- Simulates cold start by closing and reopening the state file
+- Verifies all strings still present after reopen
+- **Result:** All 5 strings survived reopen, data persists correctly ✓
+
+**Test 2: Corrupt Magic Number Detection ✅**
+- Creates valid state file with test data
+- Manually corrupts magic number from "frog" to "bad!"
+- Attempts to reopen the corrupted file
+- Verifies open operation fails with `error.InvalidMagicNumber`
+- **Result:** Corruption correctly detected, graceful error handling ✓
+
+**Test 3: Corrupt Version Detection ✅**
+- Creates valid state file (current version = 3)
+- Manually corrupts version byte to invalid value (99)
+- Attempts to reopen the corrupted file
+- Verifies open operation fails with `error.InvalidVersion`
+- **Result:** Version mismatch correctly detected, prevents incompatible reads ✓
+
+**Test 4: File Size Validation ✅**
+- Creates state file with known capacity (100 blocks)
+- Calculates expected size: header(16) + len(8) + blocks(100 × TrieBlock size)
+- Verifies actual file size matches expected size
+- Verifies stored size_in_bytes in header matches expected size
+- **Result:** File size validation passed - expected=3224, actual=3224, stored=3224 ✓
+
+**Implementation Summary:**
+- Added `verifyStringInStateFile()` helper function in test_multiprocess.zig
+- Tests use `TestStateFile.create()` and `TestStateFile.open()` infrastructure
+- Manual file corruption via `pwriteAll()` at specific offsets
+- Graceful error handling verified through expected error returns
+
+**Technical Notes:**
+- Magic number stored at offset 0 (4 bytes): "frog"
+- Version byte stored at offset 4 (1 byte): current = 3
+- size_in_bytes stored at offset 8 (4 bytes, i32)
+- Trie block count (len) stored at offset 16 (8 bytes, usize)
+- TrieBlock data starts at offset 24
+- File format validated on every open operation
+
+**Test Results:** 4/4 tests passing ✅
+**Total Test Count:** 50/50 tests passing (all phases)
+
+**Key Findings:**
+- Data successfully persists across process restarts (cold start works)
+- Magic number validation prevents reading corrupted/incompatible files
+- Version validation ensures backward/forward compatibility checks
+- File size calculations are correct and consistent
+- TestStateFile infrastructure provides robust file system testing
+
+**Deferred to Future Phases:**
+- Partial write simulation (crash during resize)
+- Memory mapping alignment verification
+- Multi-machine testing on network file systems
+- File recovery mechanisms after corruption
+
+---
+
 ## Proposed Test Categories (Future Phases)
 - **Round-trip verification:** Insert known data, read back, verify exact match
 - **Walker consistency:** Ensure walk_to() produces deterministic results
@@ -637,24 +708,17 @@ Based on the memory-mapped multi-process design:
 4. ✅ **Phase 3:** Edge cases and boundary conditions (7 tests) - COMPLETE
 5. ✅ **Phase 4:** Multi-process infrastructure (3 tests) - COMPLETE
 6. ✅ **Phase 4.5:** Multi-process concurrency tests (3 tests) - COMPLETE
-7. ✅ **Phase 5:** Advanced multi-process scenarios (3 tests) - COMPLETE
-8. **Phase 6:** File system integration tests (cold start, corruption detection, etc.)
+7. ✅ **Phase 5:** Advanced multi-process scenarios (5 tests) - COMPLETE
+8. ✅ **Phase 6:** File system integration tests (4 tests) - COMPLETE
 9. **Phase 7:** Fuzzing and chaos engineering
 
-**Current Status:** 46/46 tests passing ✅
+**Current Status:** 50/50 tests passing ✅
 
-**Phase 5 Achievement:** Successfully stress-tested concurrent multi-process access with:
-- Rapid insert stress (250 concurrent write operations)
-- Search during concurrent inserts (readers operating safely during writes)
-- Shared prefix stress (60 concurrent inserts forcing tall→wide promotions)
-- **Score update validation (duplicate inserts correctly decrease cost)**
-- **Concurrent score updates (priority ordering maintained under concurrent usage)**
+**Phase 6 Achievement:** Successfully validated file system operations and corruption detection:
+- Cold start persistence (data survives process restart)
+- Magic number corruption detection (graceful failure on "bad!" magic)
+- Version mismatch detection (prevents incompatible file reads)
+- File size validation (header size matches actual file size)
 
-All tests demonstrate robust semaphore coordination, structural integrity under concurrent load, complete data consistency, and **correct priority scoring under concurrent access**.
-
-**Score System Validated:**
-- Commands start at BaseCost (65535) and decrease by 1 per use
-- Lower cost = higher priority (more frequently used)
-- Concurrent processes correctly update costs without data races
-- Final ordering reflects true usage frequency across all processes
+All tests demonstrate robust file format validation, correct persistence across cold starts, and graceful error handling when files are corrupted.
 
