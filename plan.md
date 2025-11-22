@@ -1,14 +1,15 @@
 # Test Suite Plan for Memory-Mapped Trie Corruption Detection
 
-## Current Status: Phase 4.5 Complete ✅ (November 22, 2025)
+## Current Status: Phase 5 Complete ✅ (November 22, 2025)
 
-**Latest Results:** 41/41 tests passing
+**Latest Results:** 44/44 tests passing
 - Phase 0: Basic Infrastructure ✅ (11 tests)
 - Phase 1: Single-Process Stress ✅ (6 tests)
 - Phase 2: Data Integrity ✅ (7 tests)
 - Phase 3: Edge Cases & Boundaries ✅ (7 tests)
 - Phase 4: Multi-Process Infrastructure ✅ (3 tests)
-- **Phase 4.5: Multi-Process Concurrency ✅ (3 tests)**
+- Phase 4.5: Multi-Process Concurrency ✅ (3 tests)
+- **Phase 5: Advanced Multi-Process Scenarios ✅ (3 tests)**
 - Legacy tests: 5 tests
 
 **Phase 4 Progress:**
@@ -23,7 +24,12 @@
 2. ✅ Concurrent readers + writer (4 readers + 10 inserts)
 3. ✅ Multiple writers (3 writers × 20 inserts = 60 concurrent writes)
 
-**Next:** Consider additional multi-process scenarios (resize during read, rapid stress, etc.).
+**Phase 5 Complete:** Three advanced multi-process scenarios:
+1. ✅ Rapid insert stress (5 processes × 50 inserts = 250 concurrent operations)
+2. ✅ Search during concurrent inserts (3 readers + 60 writer operations)
+3. ✅ Shared prefix stress (60 concurrent inserts with common prefix testing tall→wide promotions)
+
+**Next:** Consider file system integration tests (cold start, corruption detection, etc.).
 
 ## Overview
 The trie uses a complex memory-mapped file system with:
@@ -360,6 +366,69 @@ The trie uses cross-process synchronization via:
 
 ---
 
+### **Phase 5: Advanced Multi-Process Scenarios ✅ COMPLETE**
+
+**Goal:** Test more complex multi-process patterns that stress the trie's synchronization and structural integrity under heavy concurrent load.
+
+**Prerequisites:**
+- ✅ All Phase 4.5 tests passing
+- ✅ ProcessController infrastructure working reliably
+- ✅ CLI test mode handling all operations correctly
+
+**Completed Tests:**
+
+**Test 1: Rapid Insert Stress ✅**
+- State file with 10 initial strings
+- Spawns 250 concurrent insert operations (5 processes × 50 inserts each)
+- Tests semaphore handling under heavy write load
+- Verifies all 260 strings present (10 initial + 250 inserted)
+- **Result:** All 260 strings verified, no data loss under rapid concurrent writes ✓
+
+**Test 2: Search During Concurrent Inserts ✅**
+- State file with 100 original strings
+- Spawns 3 reader processes searching for original strings
+- Spawns 60 writer operations inserting new strings (3 writers × 20 each)
+- Tests read/write interleaving and data consistency
+- Verifies all 160 strings present (100 original + 60 new)
+- Verifies all reader searches succeeded
+- **Result:** All readers succeeded, all 160 strings present ✓
+
+**Test 3: Shared Prefix Stress (Concurrent Tall→Wide Promotions) ✅**
+- Empty state file
+- Spawns 60 concurrent inserts with common prefix "SHARED_PREFIX_TESTING_"
+- Tests structural promotions (tall→wide) under concurrent access
+- Verifies trie promotion logic handles concurrent modifications correctly
+- All strings have 22-character common prefix, forcing deep tree structure
+- **Result:** All 60 strings with shared prefix present, no corruption during promotions ✓
+
+**Implementation Summary:**
+- Rapid stress test validates semaphore performance under 250 concurrent operations
+- Search during inserts proves readers can operate safely during concurrent writes
+- Shared prefix test stresses the tall→wide promotion code path concurrently
+- All tests verify complete data integrity after concurrent operations
+
+**Technical Notes:**
+- Rapid stress spawns processes quickly to maximize concurrency overlap
+- No artificial delays - natural OS scheduling provides realistic concurrency
+- Shared prefix test uses 22-char prefix (same as TallStringLen) to force promotions
+- All operations go through semaphore coordination in data.zig
+
+**Test Results:** 3/3 tests passing ✅
+**Total Test Count:** 44/44 tests passing (all phases)
+
+**Performance Observations:**
+- 250 concurrent inserts complete successfully with no lost writes
+- Semaphore coordination scales well under heavy concurrent load
+- Tall→wide promotions handle concurrent access without corruption
+- Read operations proceed safely during concurrent writes
+
+**Deferred:**
+- Resize during concurrent access (requires precise capacity control)
+- >250 concurrent operations (OS resource limits)
+- Long-running concurrent operations with process lifecycle events
+
+---
+
 ## Proposed Test Categories (Future Phases)
 - **Round-trip verification:** Insert known data, read back, verify exact match
 - **Walker consistency:** Ensure walk_to() produces deterministic results
@@ -497,15 +566,16 @@ Based on the memory-mapped multi-process design:
 4. ✅ **Phase 3:** Edge cases and boundary conditions (7 tests) - COMPLETE
 5. ✅ **Phase 4:** Multi-process infrastructure (3 tests) - COMPLETE
 6. ✅ **Phase 4.5:** Multi-process concurrency tests (3 tests) - COMPLETE
-7. **Phase 5:** Additional multi-process scenarios (resize during read, rapid stress, etc.)
-8. **Phase 6:** File system integration tests (cold start, corruption detection)
+7. ✅ **Phase 5:** Advanced multi-process scenarios (3 tests) - COMPLETE
+8. **Phase 6:** File system integration tests (cold start, corruption detection, etc.)
 9. **Phase 7:** Fuzzing and chaos engineering
 
-**Current Status:** 41/41 tests passing
-**Phase 4.5 Achievement:** Successfully implemented and verified concurrent multi-process access with:
-- Simultaneous readers (5 processes reading 100 strings)
-- Mixed readers + writers (4 readers + 10 concurrent inserts)
-- Multiple concurrent writers (60 parallel inserts)
+**Current Status:** 44/44 tests passing ✅
 
-All tests demonstrate proper semaphore coordination and data integrity under concurrent load.
+**Phase 5 Achievement:** Successfully stress-tested concurrent multi-process access with:
+- Rapid insert stress (250 concurrent write operations)
+- Search during concurrent inserts (readers operating safely during writes)
+- Shared prefix stress (60 concurrent inserts forcing tall→wide promotions)
+
+All tests demonstrate robust semaphore coordination, structural integrity under concurrent load, and complete data consistency.
 
