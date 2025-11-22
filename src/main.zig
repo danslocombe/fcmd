@@ -28,7 +28,7 @@ pub fn main() !void {
     g_shell.draw();
 
     // Instead of a static buffer we need a resizable list as copy/paste can produce a lot of inputs.
-    var buffer = std.ArrayList(input.Input).init(alloc.gpa.allocator());
+    var buffer = std.ArrayList(input.Input){};
     while (input.read_input(&buffer)) {
         data.acquire_local_mutex();
         for (buffer.items) |in| {

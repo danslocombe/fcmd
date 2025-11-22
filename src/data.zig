@@ -421,7 +421,7 @@ pub fn background_unloader_loop() void {
 
             // @Hack sleep here to avoid churn
             // 10ms
-            std.time.sleep(10 * 1000 * 1000);
+            windows.Sleep(10);
             continue;
         }
 

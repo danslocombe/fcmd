@@ -70,7 +70,7 @@ pub fn compress_half_and_half(buffer: []u8, path: []const u8, comptime f0: anyty
 
 fn copy_n_tokens_with_function(dest: []u8, source: []const u8, comptime f: anytype, n: usize) DestSourceIndexes {
     var dest_index: usize = 0;
-    var split_iter = std.mem.tokenize(u8, source, "\\");
+    var split_iter = std.mem.tokenizeScalar(u8, source, '\\');
     for (0..n) |i| {
         if (i != 0) {
             dest[dest_index] = '\\';

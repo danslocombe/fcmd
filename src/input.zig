@@ -14,7 +14,7 @@ pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
 
     // Use an arraylist instead of a static buffer as
     // this can get large if there is a long line copy/pasted.
-    var console_input_buffer = std.ArrayList(ConsoleInput).init(alloc.temp_alloc.allocator());
+    var console_input_buffer = std.ArrayList(ConsoleInput){};
 
     // Keep a buffer for multi u16 utf codepoints
     var buffered_utf16_chars: [4]u16 = alloc.zeroed(u16, 4);
@@ -35,7 +35,7 @@ pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
             buffered_utf16_len += 1;
 
             var utf8Char = Utf8Char{};
-            _ = std.unicode.utf16leToUtf8(&utf8Char.bs, &buffered_utf16_chars) catch {
+            _ = std.unicode.utf16LeToUtf8(&utf8Char.bs, &buffered_utf16_chars) catch {
                 continue;
             };
 
@@ -47,7 +47,7 @@ pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
                 .modifier_keys = key_event.dwControlKeyState,
             };
 
-            console_input_buffer.append(ci) catch unreachable;
+            console_input_buffer.append(alloc.temp_alloc.allocator(), ci) catch unreachable;
         }
     }
 
@@ -56,11 +56,11 @@ pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
     // TODO can we have escape sequences mixed in with other inputs?
     // If so we need to greedily try and pull escape sequnces
     if (try_parse_console_inputs_as_escape_sequence(console_input_buffer.items)) |input| {
-        input_buffer.append(input) catch unreachable;
+        input_buffer.append(alloc.gpa.allocator(), input) catch unreachable;
     } else {
         for (console_input_buffer.items) |ci| {
             if (Input.try_from_console_input(ci)) |input| {
-                input_buffer.append(input) catch unreachable;
+                input_buffer.append(alloc.gpa.allocator(), input) catch unreachable;
             }
         }
     }
@@ -68,7 +68,7 @@ pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
     if (windows.buffered_ctrl_c) {
         windows.buffered_ctrl_c = false;
 
-        input_buffer.append(Input{
+        input_buffer.append(alloc.gpa.allocator(), Input{
             .Copy = void{},
         }) catch unreachable;
     }

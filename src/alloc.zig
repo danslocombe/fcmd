@@ -19,7 +19,7 @@ pub fn gpa_new_idk(comptime T: type) *T {
 }
 
 pub fn new_arraylist(comptime T: type) std.ArrayList(T) {
-    return std.ArrayList(T).init(gpa.allocator());
+    return .{};
 }
 // Is there a standard library function for this?
 pub fn zeroed(comptime T: type, comptime N: usize) [N]T {

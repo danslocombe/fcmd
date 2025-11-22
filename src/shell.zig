@@ -64,14 +64,14 @@ pub const Shell = struct {
                         self.prompt.clear();
                         self.partial_complete_prev_cursor_pos = null;
 
-                        self.prompt.bs.appendSlice(current_history) catch unreachable;
+                        self.prompt.bs.appendSlice(alloc.gpa.allocator(), current_history) catch unreachable;
                         while (self.prompt.move_right()) |_| {}
                     } else {
                         if (self.history.back()) |prev_cmd| {
                             self.prompt.clear();
                             self.partial_complete_prev_cursor_pos = null;
 
-                            self.prompt.bs.appendSlice(prev_cmd) catch unreachable;
+                            self.prompt.bs.appendSlice(alloc.gpa.allocator(), prev_cmd) catch unreachable;
                             while (self.prompt.move_right()) |_| {}
                         }
                     }
@@ -80,13 +80,13 @@ pub const Shell = struct {
                     if (self.history.forward()) |next_cmd| {
                         self.prompt.clear();
                         self.partial_complete_prev_cursor_pos = null;
-                        self.prompt.bs.appendSlice(next_cmd) catch unreachable;
+                        self.prompt.bs.appendSlice(alloc.gpa.allocator(), next_cmd) catch unreachable;
                         while (self.prompt.move_right()) |_| {}
                     }
                 },
                 .Complete => {
                     if (self.current_completion) |cc| {
-                        self.prompt.bs.appendSlice(cc) catch unreachable;
+                        self.prompt.bs.appendSlice(alloc.gpa.allocator(), cc) catch unreachable;
                         while (self.prompt.move_right()) |_| {}
                     }
                 },
@@ -156,9 +156,9 @@ pub const Shell = struct {
                                 }
                             }
 
-                            self.prompt.bs.appendSlice(cc[0 .. end_index + 1]) catch unreachable;
+                            self.prompt.bs.appendSlice(alloc.gpa.allocator(), cc[0 .. end_index + 1]) catch unreachable;
                             if (add_char) |c| {
-                                self.prompt.bs.append(c) catch unreachable;
+                                self.prompt.bs.append(alloc.gpa.allocator(), c) catch unreachable;
                             }
 
                             while (self.prompt.move_right()) |_| {}

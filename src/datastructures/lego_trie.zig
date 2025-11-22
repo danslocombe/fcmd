@@ -480,7 +480,7 @@ pub const TrieWalker = struct {
         // may be typing
         // Eg the prefix "gi" may complete to "git" instead of "git status" which is the first
         // leaf as there are many other leaves with low costs eg "git log"
-        var components = std.ArrayList([]const u8).init(alloc.temp_alloc.allocator());
+        var components = std.ArrayList([]const u8){};
         while (true) {
             var current = self.trie_view.trie.blocks.at(self.trie_view.current_block);
             if (current.get_child_size() == 0) {
@@ -520,7 +520,7 @@ pub const TrieWalker = struct {
 
             cost = best_cost;
 
-            components.append(str) catch unreachable;
+            components.append(alloc.temp_alloc.allocator(), str) catch unreachable;
             if (is_leaf) {
                 break;
             }

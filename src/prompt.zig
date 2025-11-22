@@ -61,13 +61,13 @@ pub const Prompt = struct {
 
                 var c_slice = c.slice();
                 if (self.pos.byte_index == self.bs.items.len) {
-                    self.bs.appendSlice(c_slice) catch unreachable;
+                    self.bs.appendSlice(alloc.gpa.allocator(), c_slice) catch unreachable;
                 } else {
                     const bs_initial_len = self.bs.items.len;
 
                     // Insert into middle
                     // Can this be nicer?
-                    self.bs.resize(self.bs.items.len + c_slice.len) catch unreachable;
+                    self.bs.resize(alloc.gpa.allocator(), self.bs.items.len + c_slice.len) catch unreachable;
 
                     // Shift bytes forward
                     // May overlap so we don't use @memcpy
@@ -337,7 +337,7 @@ pub const Prompt = struct {
         std.mem.copyForwards(u8, self.bs.items[highlight.start_pos.byte_index..], after_highlighted);
 
         const delete_len = highlight.end_pos.byte_index - highlight.start_pos.byte_index;
-        self.bs.resize(self.bs.items.len - delete_len) catch unreachable;
+        self.bs.resize(alloc.gpa.allocator(), self.bs.items.len - delete_len) catch unreachable;
         self.pos = highlight.start_pos;
 
         self.highlight = null;
@@ -354,7 +354,7 @@ pub const Prompt = struct {
                 std.mem.copyForwards(u8, self.bs.items[self.pos.byte_index..], self.bs.items[prev_byte_index..]);
             }
 
-            self.bs.resize(self.bs.items.len - delete_byte_count) catch unreachable;
+            self.bs.resize(alloc.gpa.allocator(), self.bs.items.len - delete_byte_count) catch unreachable;
         }
 
         if (self.highlight) |*highlight| {
@@ -376,13 +376,13 @@ pub const Prompt = struct {
     pub fn move_to_and_clear_end(self: *Prompt, pos: PromptCursorPos) void {
         std.debug.assert(self.bs.items.len >= pos.x);
         self.pos = pos;
-        self.bs.resize(self.pos.byte_index) catch unreachable;
+        self.bs.resize(alloc.gpa.allocator(), self.pos.byte_index) catch unreachable;
     }
 };
 
 test "move right" {
     var prompt = Prompt.init();
-    prompt.bs.appendSlice("hi🐸") catch unreachable;
+    prompt.bs.appendSlice(alloc.gpa.allocator(), "hi🐸") catch unreachable;
 
     try std.testing.expectEqualSlices(u8, "h", prompt.move_right().?);
     try std.testing.expectEqual(@as(usize, 1), prompt.pos.byte_index);
@@ -400,7 +400,7 @@ test "move right" {
 
 test "move left" {
     var prompt = Prompt.init();
-    prompt.bs.appendSlice("hi🐸") catch unreachable;
+    prompt.bs.appendSlice(alloc.gpa.allocator(), "hi🐸") catch unreachable;
     prompt.pos.byte_index = prompt.bs.items.len;
     prompt.pos.x = 3;
 

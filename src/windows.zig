@@ -90,8 +90,8 @@ pub fn word_is_local_path(word: []const u8) bool {
     }
 
     // @Speed don't format just directly alloc
-    const wordZ = std.fmt.allocPrintZ(alloc.temp_alloc.allocator(), "{s}", .{word}) catch unreachable;
-    const word_u16 = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), wordZ) catch unreachable;
+    const wordZ = std.fmt.allocPrintSentinel(alloc.temp_alloc.allocator(), "{s}", .{word}, 0) catch unreachable;
+    const word_u16 = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), wordZ) catch unreachable;
 
     const file_attributes = import.GetFileAttributesW(word_u16);
 
@@ -99,10 +99,10 @@ pub fn word_is_local_path(word: []const u8) bool {
 }
 
 pub fn get_appdata_path() []const u8 {
-    const appdata_literal = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), "APPDATA") catch unreachable;
+    const appdata_literal = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), "APPDATA") catch unreachable;
     var buffer: [256]u16 = undefined;
     const len = import.GetEnvironmentVariableW(appdata_literal, &buffer, 256);
-    return std.unicode.utf16leToUtf8Alloc(alloc.gpa.allocator(), buffer[0..len]) catch unreachable;
+    return std.unicode.utf16LeToUtf8Alloc(alloc.gpa.allocator(), buffer[0..len]) catch unreachable;
 }
 
 pub fn write_console(cs: []const u8) void {
@@ -120,7 +120,7 @@ pub fn copy_to_clipboard(s: []const u8) void {
 
     if (import.EmptyClipboard() == 0) @panic("Failed to empty the clipboard");
 
-    var s_utf16: [:0]u16 = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), s) catch unreachable;
+    var s_utf16: [:0]u16 = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), s) catch unreachable;
     const data_handle = import.GlobalAlloc(0, (s_utf16.len + 1) * @sizeOf(u16));
     if (data_handle == null) @panic("GlobalAlloc call failed when trying to copy to the clipboard");
 
@@ -132,7 +132,7 @@ pub fn copy_to_clipboard(s: []const u8) void {
     _ = import.CloseClipboard();
 }
 
-pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(std.os.windows.WINAPI) std.os.windows.BOOL {
+pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(.c) std.os.windows.BOOL {
     switch (signal) {
         std.os.windows.CTRL_C_EVENT, std.os.windows.CTRL_BREAK_EVENT, std.os.windows.CTRL_CLOSE_EVENT => {
             //write_console("\nCtrl C input read\n");
@@ -169,12 +169,12 @@ pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(std.os.wind
 // Copy paste the std lib code and map the panic to an error.
 pub const CopyPastedFromStdLibWithAdditionalSafety = struct {
     const Dir = std.fs.Dir;
-    const OpenDirOptions = Dir.OpenDirOptions;
+    const OpenDirOptions = Dir.OpenOptions;
     const OpenError = Dir.OpenError;
     const This = @This();
-    pub fn openIterableDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!std.fs.IterableDir {
-        const sub_path_w = try std.os.windows.sliceToPrefixedFileW(sub_path);
-        return std.fs.IterableDir{ .dir = try This.openDirW(self, sub_path_w.span().ptr, args, true) };
+    pub fn openIterableDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
+        const sub_path_w = try std.os.windows.sliceToPrefixedFileW(self.fd, sub_path);
+        return try This.openDirW(self, sub_path_w.span().ptr, args, true);
     }
 
     pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions, iterable: bool) OpenError!Dir {
@@ -183,7 +183,7 @@ pub const CopyPastedFromStdLibWithAdditionalSafety = struct {
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
         const flags: u32 = if (iterable) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        const dir = try This.openDirAccessMaskW(self, sub_path_w, flags, args.no_follow);
+        const dir = try This.openDirAccessMaskW(self, sub_path_w, flags, !args.follow_symlinks);
         return dir;
     }
 

@@ -49,7 +49,7 @@ pub const FroggyCommand = union(enum) {
                 windows.write_console("Goodbye");
 
                 // TODO reset the console state to what it was before
-                std.os.windows.kernel32.ExitProcess(0);
+                std.process.exit(0);
                 unreachable;
             },
         }
@@ -115,12 +115,12 @@ pub fn hack_run_async(cmd: []const u8) bool {
 
 pub fn run_cmd(cmd: []const u8) RunResult {
     //std.debug.print("Running command {s}\n", .{cmd});
-    const command = std.fmt.allocPrintZ(alloc.temp_alloc.allocator(), "cmd /C {s}", .{cmd}) catch unreachable;
-    var cmd_buf = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), command) catch unreachable;
+    const command = std.fmt.allocPrintSentinel(alloc.temp_alloc.allocator(), "cmd /C {s}", .{cmd}, 0) catch unreachable;
+    var cmd_buf = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), command) catch unreachable;
 
     const NORMAL_PRIORITY_CLASS = 0x00000020;
     const CREATE_NEW_PROCESS_GROUP = 0x00000200;
-    const flags = NORMAL_PRIORITY_CLASS | CREATE_NEW_PROCESS_GROUP;
+    const flags: std.os.windows.CreateProcessFlags = @bitCast(@as(u32, NORMAL_PRIORITY_CLASS | CREATE_NEW_PROCESS_GROUP));
 
     var startup_info = std.os.windows.STARTUPINFOW{
         .cb = @sizeOf(std.os.windows.STARTUPINFOW),

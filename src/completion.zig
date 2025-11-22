@@ -89,7 +89,7 @@ pub const DirectoryCompleter = struct {
         }
 
         if (self.files) |*xs| {
-            xs.deinit();
+            xs.deinit(alloc.gpa.allocator());
             self.files = null;
         }
     }
@@ -107,7 +107,7 @@ pub const DirectoryCompleter = struct {
         }
 
         if (self.files) |*xs| {
-            xs.deinit();
+            xs.deinit(alloc.gpa.allocator());
             self.files = null;
         }
 
@@ -117,7 +117,7 @@ pub const DirectoryCompleter = struct {
 
         // TODO handle absolute paths
         const cwd = std.fs.cwd();
-        var dir: std.fs.IterableDir = undefined;
+        var dir: std.fs.Dir = undefined;
 
         if (windows.CopyPastedFromStdLibWithAdditionalSafety.openIterableDir(cwd, rel_dir, .{})) |rdir| {
             dir = rdir;
@@ -132,7 +132,7 @@ pub const DirectoryCompleter = struct {
         while (iter.next()) |m_file| {
             if (m_file) |file| {
                 //std.debug.print("Found '{s}'\n", .{file.name});
-                self.files.?.append(.{
+                self.files.?.append(alloc.gpa.allocator(), .{
                     .name = alloc.copy_slice_to_gpa(file.name),
                     // TODO This overtriggers
                     .is_dir = file.kind != std.fs.File.Kind.file,
