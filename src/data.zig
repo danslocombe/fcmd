@@ -51,7 +51,7 @@ pub const BackingData = struct {
         g_backing_data.map_pointer = null;
 
         var state_dir = state_override_dir;
-        var appdata: []const u8 = windows.get_appdata_path();
+        const appdata: []const u8 = windows.get_appdata_path();
         defer (alloc.gpa.allocator().free(appdata));
 
         if (state_dir == null) {
@@ -59,9 +59,9 @@ pub const BackingData = struct {
         }
 
         log.log_debug("Creating semaphore {s}\n", semaphore_name);
-        var create_semaphore_result = windows.CreateSemaphoreA(null, 0, 1024, semaphore_name);
+        const create_semaphore_result = windows.CreateSemaphoreA(null, 0, 1024, semaphore_name);
         if (create_semaphore_result == null) {
-            var last_error = windows.GetLastError();
+            const last_error = windows.GetLastError();
             alloc.fmt_panic("Failed to get semaphore {s}, Error {}", .{ semaphore_name, last_error });
         }
 
@@ -72,13 +72,13 @@ pub const BackingData = struct {
         // to decrease the account
         var prev_semaphore_count: i32 = -1;
         if (windows.ReleaseSemaphore(g_cross_process_semaphore, 1, &prev_semaphore_count) == 0) {
-            var last_error = windows.GetLastError();
+            const last_error = windows.GetLastError();
             alloc.fmt_panic("Failed to release semaphore, Error {}", .{last_error});
         }
 
         log.log_debug("Released semaphore, prev_count was {}\n", .{prev_semaphore_count});
 
-        var fcmd_appdata_dir = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ state_dir.?, "\\fcmd" }, 0) catch unreachable;
+        const fcmd_appdata_dir = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ state_dir.?, "\\fcmd" }, 0) catch unreachable;
         std.fs.makeDirAbsolute(fcmd_appdata_dir) catch |err| {
             switch (err) {
                 error.PathAlreadyExists => {
@@ -100,7 +100,7 @@ pub const BackingData = struct {
 
             var get_event_response = windows.CreateEventA(null, manually_reset, initial_state, unload_event_name);
             if (get_event_response == null) {
-                var last_error = windows.GetLastError();
+                const last_error = windows.GetLastError();
                 alloc.fmt_panic("CreateEventA {s} error code {}", .{ unload_event_name, last_error });
             }
 
@@ -108,7 +108,7 @@ pub const BackingData = struct {
 
             get_event_response = windows.CreateEventA(null, manually_reset, initial_state, reload_event_name);
             if (get_event_response == null) {
-                var last_error = windows.GetLastError();
+                const last_error = windows.GetLastError();
                 alloc.fmt_panic("CreateEventA {s} error code {}", .{ reload_event_name, last_error });
             }
 
@@ -125,23 +125,23 @@ pub const BackingData = struct {
         // @Reliability add defer on error for this or a crash will block all others.
         //signal_other_processes_can_reaquire_handle();
 
-        var thread = std.Thread.spawn(.{}, background_unloader_loop, .{}) catch @panic("Could not start background thread");
+        const thread = std.Thread.spawn(.{}, background_unloader_loop, .{}) catch @panic("Could not start background thread");
         _ = thread;
     }
 
     pub fn open_map(new_size: ?usize) void {
         log.log_debug("Opening map. new_size {any}\n", new_size);
-        var size = new_size orelse initial_size;
+        const size = new_size orelse initial_size;
 
         if (g_backing_data.map_pointer) |map_ptr| {
             std.os.windows.CloseHandle(map_ptr);
             g_backing_data.map_pointer = null;
         }
 
-        var map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
+        const map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
 
         // Try and open
-        var m_open_mapping_result = windows.OpenFileMappingA(FILE_MAP_ALL_ACCESS, 0, map_name);
+        const m_open_mapping_result = windows.OpenFileMappingA(FILE_MAP_ALL_ACCESS, 0, map_name);
         if (m_open_mapping_result) |open_mapping_result| {
             log.log_debug("Opened existing file mapping!\n", .{});
             g_backing_data.map_pointer = open_mapping_result;
@@ -152,19 +152,19 @@ pub const BackingData = struct {
             if (g_backing_data.file_handle == null) {
                 const GENERIC_READ = 0x80000000;
                 const GENERIC_WRITE = 0x40000000;
-                var file_handle: ?*anyopaque = windows.CreateFileA(g_filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
+                const file_handle: ?*anyopaque = windows.CreateFileA(g_filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
 
                 if (file_handle == null) {
-                    var last_error = windows.GetLastError();
+                    const last_error = windows.GetLastError();
                     alloc.fmt_panic("CreateFileA: Error code {}", .{last_error});
                 }
 
                 g_backing_data.file_handle = file_handle.?;
             }
 
-            var map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
+            const map_handle = windows.CreateFileMapping(g_backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
             if (map_handle == null) {
-                var last_error = windows.GetLastError();
+                const last_error = windows.GetLastError();
                 alloc.fmt_panic("CreateFileMapping: Error code {}", .{last_error});
             }
 
@@ -173,10 +173,10 @@ pub const BackingData = struct {
 
         // @Reliability switch to MapViewOfFile3 to guarentee alignment
         // https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-mapviewoffile3
-        var map_view = windows.MapViewOfFile(g_backing_data.map_pointer.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(size));
+        const map_view = windows.MapViewOfFile(g_backing_data.map_pointer.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(size));
 
         if (map_view == null) {
-            var last_error = windows.GetLastError();
+            const last_error = windows.GetLastError();
             alloc.fmt_panic("MapViewOfFile: Error code {}", .{last_error});
         }
 
@@ -184,16 +184,16 @@ pub const BackingData = struct {
 
         var map = @as([*]volatile u8, @ptrCast(g_backing_data.map_view_pointer))[0..size];
 
-        var map_magic_number = map[0..4];
-        var version = &map[4];
+        const map_magic_number = map[0..4];
+        const version = &map[4];
         g_backing_data.size_in_bytes_ptr = @ptrCast(@alignCast(map.ptr + 8));
 
         g_backing_data.trie_blocks = undefined;
         g_backing_data.trie_blocks.len = @ptrCast(@alignCast(map.ptr + 16));
         const start = 16 + @sizeOf(usize);
-        var trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
-        var end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
-        var trieblock_bytes = map[start .. start + end];
+        const trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
+        const end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
+        const trieblock_bytes = map[start .. start + end];
 
         g_backing_data.trie_blocks.map = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, @volatileCast(trieblock_bytes)));
 
@@ -259,7 +259,7 @@ pub const MMFBackedFixedAllocator = struct {
         _ = ra;
         const ptr_align = @as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intCast(log2_ptr_align));
         var buffer = self.map;
-        var end_index_ptr = self.end_index_ptr;
+        const end_index_ptr = self.end_index_ptr;
         const adjust_off = std.mem.alignPointerOffset(buffer.ptr + end_index_ptr.*, ptr_align) orelse return null;
         const adjusted_index = end_index_ptr.* + adjust_off;
         const new_end_index = adjusted_index + n;
@@ -313,7 +313,7 @@ pub fn DumbList(comptime T: type) type {
         pub fn append(self: *Self, x: T) void {
             if (self.len.* >= self.map.len) {
                 // Resize
-                var new_size = initial_size + self.map.len * 2 * @sizeOf(lego_trie.TrieBlock);
+                const new_size = initial_size + self.map.len * 2 * @sizeOf(lego_trie.TrieBlock);
 
                 // @Hack set the value in the backing data to the new size
                 // before telling everyone to unload and reload as they need to know
@@ -342,13 +342,13 @@ pub fn ensure_other_processes_have_released_handle() void {
     g_hack_we_are_the_process_requesting_an_unload = true;
 
     if (windows.ResetEvent(g_reload_event) == 0) {
-        var last_error = windows.GetLastError();
+        const last_error = windows.GetLastError();
         alloc.fmt_panic("Failed to reset event '{s}'. Error {}", .{ reload_event_name, last_error });
     }
 
     // Signal to others they should begin unloading
     if (windows.SetEvent(g_unload_event) == 0) {
-        var last_error = windows.GetLastError();
+        const last_error = windows.GetLastError();
         alloc.fmt_panic("Failed to set event '{s}'. Error {}", .{ unload_event_name, last_error });
     }
 
@@ -365,7 +365,7 @@ pub fn ensure_other_processes_have_released_handle() void {
 
         var prev_count: i32 = -1;
         if (windows.ReleaseSemaphore(g_cross_process_semaphore, 1, &prev_count) == 0) {
-            var last_error = windows.GetLastError();
+            const last_error = windows.GetLastError();
             alloc.fmt_panic("Failed to release semaphore, Error {}", .{last_error});
         }
 
@@ -377,7 +377,7 @@ pub fn ensure_other_processes_have_released_handle() void {
         } else {
             // Someone else is still holding the semaphore, continue to wait
             // 1ms
-            std.time.sleep(1 * 1000 * 1000);
+            windows.Sleep(1);
         }
     }
 }
@@ -386,12 +386,12 @@ pub fn signal_other_processes_can_reaquire_handle() void {
     g_hack_we_are_the_process_requesting_an_unload = false;
 
     if (windows.ResetEvent(g_unload_event) == 0) {
-        var last_error = windows.GetLastError();
+        const last_error = windows.GetLastError();
         alloc.fmt_panic("Failed to reset event '{s}'. Error {}", .{ unload_event_name, last_error });
     }
 
     if (windows.SetEvent(g_reload_event) == 0) {
-        var last_error = windows.GetLastError();
+        const last_error = windows.GetLastError();
         alloc.fmt_panic("Failed to set event '{s}'. Error {}", .{ reload_event_name, last_error });
     }
 }
@@ -427,7 +427,7 @@ pub fn background_unloader_loop() void {
         acquire_local_mutex();
         // Now locally safe to unload
 
-        var reload_size = g_backing_data.size_in_bytes_ptr.*;
+        const reload_size = g_backing_data.size_in_bytes_ptr.*;
         log.log_debug("Unloading file...\n", .{});
         if (g_backing_data.map_pointer) |map_ptr| {
             std.os.windows.CloseHandle(map_ptr);
@@ -446,7 +446,7 @@ pub fn background_unloader_loop() void {
         // Increment semaphore to signify we are reading the file
         var prev_semaphore_count: i32 = -1;
         if (windows.ReleaseSemaphore(g_cross_process_semaphore, 1, &prev_semaphore_count) == 0) {
-            var last_error = windows.GetLastError();
+            const last_error = windows.GetLastError();
             alloc.fmt_panic("Failed to release semaphore, Error {}", .{last_error});
         }
 

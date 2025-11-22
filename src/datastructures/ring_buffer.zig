@@ -8,7 +8,7 @@ pub fn RingBuffer(comptime T: type) type {
         const Self = @This();
 
         pub fn init(sample_count: usize, default_value: T) Self {
-            var buffer = alloc.gpa_alloc_idk(T, sample_count);
+            const buffer = alloc.gpa_alloc_idk(T, sample_count);
 
             for (buffer) |*p| {
                 p.* = default_value;
@@ -26,7 +26,7 @@ pub fn RingBuffer(comptime T: type) type {
         pub fn push(self: *Self, x: T) T {
             self.incr_current_pos();
 
-            var prev = self.buffer[self.current_pos];
+            const prev = self.buffer[self.current_pos];
             self.buffer[self.current_pos] = x;
 
             return prev;
@@ -40,7 +40,7 @@ pub fn RingBuffer(comptime T: type) type {
         }
 
         pub fn get(self: *Self, offset: i32) *T {
-            var pos = self.pos_wrapping(offset);
+            const pos = self.pos_wrapping(offset);
             return &self.buffer[pos];
         }
 

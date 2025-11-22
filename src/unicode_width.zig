@@ -6,12 +6,12 @@ const input = @import("input.zig");
 
 pub fn get_width_slice(xs: []const u8) usize {
     std.debug.assert(xs.len <= 4);
-    var utf8 = std.unicode.utf8Decode(xs) catch unreachable;
+    const utf8 = std.unicode.utf8Decode(xs) catch unreachable;
     return get_width_inner(@intCast(utf8));
 }
 
 pub fn get_width(cp: input.Utf8Char) usize {
-    var utf8 = std.unicode.utf8Decode(cp.slice()) catch unreachable;
+    const utf8 = std.unicode.utf8Decode(cp.slice()) catch unreachable;
     return get_width_inner(@intCast(utf8));
 }
 
@@ -34,22 +34,22 @@ pub fn get_width_inner(cp: u32) usize {
 }
 
 fn lookup_width(p_cp: u32) usize {
-    var cp: usize = @intCast(p_cp);
-    var t1_offset = TABLES_0[@intCast(cp >> 13 & 0xFF)];
+    const cp: usize = @intCast(p_cp);
+    const t1_offset = TABLES_0[@intCast(cp >> 13 & 0xFF)];
 
     // Each sub-table in TABLES_1 is 7 bits, and each stored entry is a byte,
     // so each sub-table is 128 bytes in size.
     // (Sub-tables are selected using the computed offset from the previous table.)
-    var t2_offset = TABLES_1[128 * @as(usize, @intCast(t1_offset)) + (cp >> 6 & 0x7F)];
+    const t2_offset = TABLES_1[128 * @as(usize, @intCast(t1_offset)) + (cp >> 6 & 0x7F)];
 
     // Each sub-table in TABLES_2 is 6 bits, but each stored entry is 2 bits.
     // This is accomplished by packing four stored entries into one byte.
     // So each sub-table is 2**(6-2) == 16 bytes in size.
     // Since this is the last table, each entry represents an encoded width.
-    var packed_widths = TABLES_2[16 * @as(usize, @intCast(t2_offset)) + (cp >> 2 & 0xF)];
+    const packed_widths = TABLES_2[16 * @as(usize, @intCast(t2_offset)) + (cp >> 2 & 0xF)];
 
     // Extract the packed width
-    var width = packed_widths >> (2 * @as(u3, @intCast(cp & 0b11))) & 0b11;
+    const width = packed_widths >> (2 * @as(u3, @intCast(cp & 0b11))) & 0b11;
 
     // In unicode-width refered to as is_cjk as those are the languages
     // where this looks more natural

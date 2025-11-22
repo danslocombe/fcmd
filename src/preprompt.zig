@@ -4,12 +4,12 @@ const alloc = @import("alloc.zig");
 pub fn build_preprompt() []const u8 {
     var cwd = std.fs.cwd();
     var buffer: [std.os.windows.PATH_MAX_WIDE * 3 + 1]u8 = undefined;
-    var filename = std.os.getFdPath(cwd.fd, &buffer) catch unreachable;
+    const filename = std.os.getFdPath(cwd.fd, &buffer) catch unreachable;
 
     const desired_len = 40;
-    var compressed = compress_path(filename, desired_len);
+    const compressed = compress_path(filename, desired_len);
 
-    var ret = std.mem.concat(alloc.gpa.allocator(), u8, &.{ compressed, "-> " }) catch unreachable;
+    const ret = std.mem.concat(alloc.gpa.allocator(), u8, &.{ compressed, "-> " }) catch unreachable;
     return ret;
 }
 
@@ -46,8 +46,8 @@ const DestSourceIndexes = struct {
 };
 
 pub fn compress_half_and_half(buffer: []u8, path: []const u8, comptime f0: anytype, comptime f1: anytype) usize {
-    var token_count = std.mem.count(u8, path, "\\") + 1;
-    var half_index = @divFloor(token_count, 2);
+    const token_count = std.mem.count(u8, path, "\\") + 1;
+    const half_index = @divFloor(token_count, 2);
 
     var indexes = DestSourceIndexes{};
     indexes = copy_n_tokens_with_function(buffer[indexes.dest_index..], path[indexes.source_index..], f0, half_index);
@@ -56,13 +56,13 @@ pub fn compress_half_and_half(buffer: []u8, path: []const u8, comptime f0: anyty
     buffer[indexes.dest_index] = '\\';
     indexes.dest_index += 1;
 
-    var t = token_count - half_index - 1;
+    const t = token_count - half_index - 1;
     var ret = copy_n_tokens_with_function(buffer[indexes.dest_index..], path[indexes.source_index..], f1, t);
     indexes.dest_index += ret.dest_index;
     indexes.source_index += ret.source_index;
 
     std.debug.assert(path[indexes.source_index] == '\\');
-    var rest = (path.len - indexes.source_index);
+    const rest = (path.len - indexes.source_index);
     @memcpy(buffer[indexes.dest_index .. indexes.dest_index + rest], path[indexes.source_index..]);
 
     return indexes.dest_index + rest;
@@ -133,26 +133,26 @@ fn copy_id(dest: []u8, source: []const u8) usize {
 }
 
 test "remove vowels first half" {
-    var compressed = compress_path("C:\\Useeers\\daslocom\\zcmd", 24);
+    const compressed = compress_path("C:\\Useeers\\daslocom\\zcmd", 24);
     try std.testing.expectEqualSlices(u8, "C:\\Usrs\\daslocom\\zcmd", compressed);
 }
 
 test "remove all vowels" {
-    var compressed = compress_path("C:\\Users\\daslocom\\baaa", 20);
+    const compressed = compress_path("C:\\Users\\daslocom\\baaa", 20);
 
     // Note we leave the final token unchanged
     try std.testing.expectEqualSlices(u8, "C:\\Usrs\\dslcm\\baaa", compressed);
 }
 
 test "single char first half" {
-    var compressed = compress_path("C:\\Users\\daslocom\\baaa\\baaa", 18);
+    const compressed = compress_path("C:\\Users\\daslocom\\baaa\\baaa", 18);
 
     // Note we leave the final token unchanged
     try std.testing.expectEqualSlices(u8, "C:\\U\\dslcm\\b\\baaa", compressed);
 }
 
 test "single char all" {
-    var compressed = compress_path("C:\\Users\\daslocom\\baaa\\baaa", 16);
+    const compressed = compress_path("C:\\Users\\daslocom\\baaa\\baaa", 16);
 
     // Note we leave the final token unchanged
     try std.testing.expectEqualSlices(u8, "C:\\U\\d\\b\\baaa", compressed);

@@ -13,7 +13,7 @@ pub fn log_debug(comptime s: []const u8, args: anytype) void {
 pub fn log_info(comptime s: []const u8, args: anytype) void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
-    if (args_type_info == .Struct) {
+    if (args_type_info == .@"struct") {
         std.debug.print(s, args);
     } else {
         std.debug.print(s, .{args});

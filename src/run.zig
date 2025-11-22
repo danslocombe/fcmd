@@ -25,7 +25,7 @@ pub const FroggyCommand = union(enum) {
         switch (self) {
             .Cd => |cd| {
                 // Same number of bytes should be enough space
-                var utf16_buffer = alloc.temp_alloc.allocator().alloc(u16, cd.len) catch unreachable;
+                const utf16_buffer = alloc.temp_alloc.allocator().alloc(u16, cd.len) catch unreachable;
                 _ = std.unicode.utf8ToUtf16Le(utf16_buffer, cd) catch unreachable;
                 std.os.windows.SetCurrentDirectory(utf16_buffer) catch |err| {
                     std.debug.print("CD Error {}\n", .{err});
@@ -35,7 +35,7 @@ pub const FroggyCommand = union(enum) {
                 return .{};
             },
             .Echo => |e| {
-                var with_newline = std.mem.concat(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ e, "\n" }) catch unreachable;
+                const with_newline = std.mem.concat(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ e, "\n" }) catch unreachable;
                 windows.write_console(with_newline);
                 return .{};
             },
@@ -94,7 +94,7 @@ fn split_first_word(xs: []const u8) struct { first: []const u8, rest: []const u8
             return .{ .first = xs, .rest = "" };
         }
 
-        var rest = xs[next.len + 1 ..];
+        const rest = xs[next.len + 1 ..];
         return .{ .first = next, .rest = rest };
     }
 
@@ -102,8 +102,8 @@ fn split_first_word(xs: []const u8) struct { first: []const u8, rest: []const u8
 }
 
 pub fn hack_run_async(cmd: []const u8) bool {
-    var trimmed = std.mem.trim(u8, cmd, " ");
-    var internal_space_count = std.mem.count(u8, trimmed, " ");
+    const trimmed = std.mem.trim(u8, cmd, " ");
+    const internal_space_count = std.mem.count(u8, trimmed, " ");
 
     if (internal_space_count == 0 and std.mem.endsWith(u8, trimmed, ".sln")) {
         // @Hack if you directly invoke a .sln file open in the background
@@ -115,7 +115,7 @@ pub fn hack_run_async(cmd: []const u8) bool {
 
 pub fn run_cmd(cmd: []const u8) RunResult {
     //std.debug.print("Running command {s}\n", .{cmd});
-    var command = std.fmt.allocPrintZ(alloc.temp_alloc.allocator(), "cmd /C {s}", .{cmd}) catch unreachable;
+    const command = std.fmt.allocPrintZ(alloc.temp_alloc.allocator(), "cmd /C {s}", .{cmd}) catch unreachable;
     var cmd_buf = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), command) catch unreachable;
 
     const NORMAL_PRIORITY_CLASS = 0x00000020;
@@ -175,7 +175,7 @@ pub fn try_interupt_running_process() bool {
     if (g_current_running_process_info) |current_running_process| {
         const CTRL_BREAK_EVENT = 1;
         if (windows.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, current_running_process.dwProcessId) == 0) {
-            var err = windows.GetLastError();
+            const err = windows.GetLastError();
             log.log_info("Failed to send ctrl event to running process. Last error {}", .{err});
         }
         return true;

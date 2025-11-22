@@ -81,8 +81,8 @@ pub const TrieBlock = struct {
     }
 
     fn insert_prefix(self: *TrieBlock, trie: *Trie, key: []const u8) void {
-        var node_count = self.get_node_count();
-        var string_size = self.get_string_size();
+        const node_count = self.get_node_count();
+        const string_size = self.get_string_size();
         _ = string_size;
 
         if (self.metadata.wide) {
@@ -95,13 +95,13 @@ pub const TrieBlock = struct {
             }
         }
 
-        var child_size = self.get_child_size();
+        const child_size = self.get_child_size();
 
         // No matches
         if (child_size == node_count) {
             if (!self.metadata.wide) {
                 // Promote to wide
-                var replacement = self.node_data.tall.promote_tall_to_wide(trie);
+                const replacement = self.node_data.tall.promote_tall_to_wide(trie);
                 self.node_data = .{ .wide = replacement };
                 self.metadata.wide = true;
             } else {
@@ -111,7 +111,7 @@ pub const TrieBlock = struct {
                 // No sibling, need to insert one
                 if (self.metadata.next == 0) {
                     trie.blocks.append(TrieBlock.empty_wide());
-                    var new_node_id: u32 = @intCast(trie.blocks.len.* - 1);
+                    const new_node_id: u32 = @intCast(trie.blocks.len.* - 1);
                     self.metadata.next = @intCast(new_node_id);
                 }
 
@@ -148,7 +148,7 @@ pub const TrieBlock = struct {
         }
 
         // Assume all of the same shape
-        var wide = self.metadata.wide;
+        const wide = self.metadata.wide;
 
         for (0..total_count) |i| {
             var iter_0 = ChildIterator{ .block = self, .trie = trie };
@@ -166,16 +166,16 @@ pub const TrieBlock = struct {
 
                 // Remove duplication
                 if (wide) {
-                    var cost_0 = iter_0.block.node_data.wide.costs[iter_0.i.?];
-                    var cost_1 = iter_1.block.node_data.wide.costs[iter_1.i.?];
+                    const cost_0 = iter_0.block.node_data.wide.costs[iter_0.i.?];
+                    const cost_1 = iter_1.block.node_data.wide.costs[iter_1.i.?];
 
                     // Use >= instead of > to prefer recent insertions
                     if (cost_0 >= cost_1) {
                         swapped = true;
 
-                        var tmp_cost = iter_0.block.node_data.wide.costs[iter_0.i.?];
-                        var tmp_str = iter_0.block.node_data.wide.nodes[iter_0.i.?];
-                        var tmp_data = iter_0.block.node_data.wide.data[iter_0.i.?];
+                        const tmp_cost = iter_0.block.node_data.wide.costs[iter_0.i.?];
+                        const tmp_str = iter_0.block.node_data.wide.nodes[iter_0.i.?];
+                        const tmp_data = iter_0.block.node_data.wide.data[iter_0.i.?];
 
                         iter_0.block.node_data.wide.costs[iter_0.i.?] = iter_1.block.node_data.wide.costs[iter_1.i.?];
                         iter_0.block.node_data.wide.nodes[iter_0.i.?] = iter_1.block.node_data.wide.nodes[iter_1.i.?];
@@ -186,16 +186,16 @@ pub const TrieBlock = struct {
                         iter_1.block.node_data.wide.data[iter_1.i.?] = tmp_data;
                     }
                 } else {
-                    var cost_0 = iter_0.block.node_data.tall.costs[iter_0.i.?];
-                    var cost_1 = iter_1.block.node_data.tall.costs[iter_1.i.?];
+                    const cost_0 = iter_0.block.node_data.tall.costs[iter_0.i.?];
+                    const cost_1 = iter_1.block.node_data.tall.costs[iter_1.i.?];
 
                     // Use >= instead of > to prefer recent insertions
                     if (cost_0 >= cost_1) {
                         swapped = true;
 
-                        var tmp_cost = iter_0.block.node_data.tall.costs[iter_0.i.?];
-                        var tmp_str = iter_0.block.node_data.tall.nodes[iter_0.i.?];
-                        var tmp_data = iter_0.block.node_data.tall.data[iter_0.i.?];
+                        const tmp_cost = iter_0.block.node_data.tall.costs[iter_0.i.?];
+                        const tmp_str = iter_0.block.node_data.tall.nodes[iter_0.i.?];
+                        const tmp_data = iter_0.block.node_data.tall.data[iter_0.i.?];
 
                         iter_0.block.node_data.tall.costs[iter_0.i.?] = iter_1.block.node_data.tall.costs[iter_1.i.?];
                         iter_0.block.node_data.tall.nodes[iter_0.i.?] = iter_1.block.node_data.tall.nodes[iter_1.i.?];
@@ -281,7 +281,7 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
                 }
 
                 trie.blocks.append(TrieBlock.empty_tall());
-                var new_index: u30 = @intCast(trie.blocks.len.* - 1);
+                const new_index: u30 = @intCast(trie.blocks.len.* - 1);
 
                 var new_block = trie.blocks.at(@intCast(new_index));
                 new_block.node_data.tall.nodes[0].assign_from(self.nodes[i].slice()[WideStringLen..]);
@@ -341,16 +341,16 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
                         self.costs[i] -|= 1;
                     } else {
                         // Split on common prefix
-                        var split_first = child_slice[0..common_len];
-                        var split_first_smallstring = InlineString(StringLen).from_slice(split_first);
-                        var split_second = child_slice[common_len..];
-                        var split_second_smallstring = InlineString(TallStringLen).from_slice(split_second);
+                        const split_first = child_slice[0..common_len];
+                        const split_first_smallstring = InlineString(StringLen).from_slice(split_first);
+                        const split_second = child_slice[common_len..];
+                        const split_second_smallstring = InlineString(TallStringLen).from_slice(split_second);
 
                         // Create new block to hold children
                         trie.blocks.append(TrieBlock.empty_tall());
-                        var new_block_id: u30 = @intCast(trie.blocks.len.* - 1);
-                        var new_block = trie.blocks.at(new_block_id);
-                        var new_tall = &new_block.*.node_data.tall;
+                        const new_block_id: u30 = @intCast(trie.blocks.len.* - 1);
+                        const new_block = trie.blocks.at(new_block_id);
+                        const new_tall = &new_block.*.node_data.tall;
                         new_tall.*.data[0] = self.data[i];
                         std.debug.assert(new_tall.*.data[0].exists);
                         new_tall.*.nodes[0] = split_second_smallstring;
@@ -371,7 +371,7 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
                         return true;
                     }
 
-                    var block_id = self.data[i].data;
+                    const block_id = self.data[i].data;
                     var block = trie.blocks.at(@intCast(block_id));
                     block.insert_prefix_and_sort(trie, recurse_key);
                     return true;
@@ -383,7 +383,7 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
 
         pub fn insert_down(self: *Self, trie: *Trie, key: []const u8) void {
             std.debug.assert(self.get_child_size() < NodeCount);
-            var insert_index = self.get_child_size();
+            const insert_index = self.get_child_size();
             if (key.len < StringLen) {
                 // Insert single
                 self.nodes[insert_index].assign_from(key);
@@ -396,7 +396,7 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
                 self.nodes[insert_index].assign_from(key[0..StringLen]);
 
                 trie.blocks.append(TrieBlock.empty_tall());
-                var new_node_id: u30 = @intCast(trie.blocks.len.* - 1);
+                const new_node_id: u30 = @intCast(trie.blocks.len.* - 1);
                 var new_node = trie.blocks.at(new_node_id);
 
                 self.data[insert_index].is_leaf = false;
@@ -509,9 +509,9 @@ pub const TrieWalker = struct {
                 next_block = current.node_data.tall.data[0].data;
             }
 
-            var best_score: u32 = @intCast(BaseCost - best_cost);
-            var prev_score = BaseCost - cost;
-            var score_of_ending_exactly_here = prev_score - total_score;
+            const best_score: u32 = @intCast(BaseCost - best_cost);
+            const prev_score = BaseCost - cost;
+            const score_of_ending_exactly_here = prev_score - total_score;
 
             // Stopping heuristic
             if (@as(f32, @floatFromInt(score_of_ending_exactly_here)) * 1.8 > @as(f32, @floatFromInt(best_score))) {
@@ -533,7 +533,7 @@ pub const TrieWalker = struct {
 
     pub fn walk_to(self: *TrieWalker) bool {
         while (true) {
-            var current_prefix = self.prefix[self.char_id..];
+            const current_prefix = self.prefix[self.char_id..];
             var current = self.trie_view.trie.blocks.at(self.trie_view.current_block);
             self.extension = .{};
 
@@ -603,10 +603,10 @@ pub const ChildIterator = struct {
 
         self.i.? += 1;
 
-        var child_size = self.block.get_child_size();
+        const child_size = self.block.get_child_size();
         if (self.i.? == child_size) {
             if (self.block.metadata.next > 0) {
-                var new = self.trie.blocks.at(self.block.metadata.next);
+                const new = self.trie.blocks.at(self.block.metadata.next);
                 self.block = new;
                 self.i.? = 0;
             } else {
@@ -628,13 +628,13 @@ fn test_equal(actual: anytype, expected: @TypeOf(actual)) !void {
 }
 
 test "insert single" {
-    var strings = [_][]const u8{
+    const strings = [_][]const u8{
         "bug",
     };
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
-    var blocks = data.DumbList(TrieBlock){
+    const blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
@@ -660,13 +660,13 @@ test "insert single" {
 }
 
 test "insert double" {
-    var strings = [_][]const u8{
+    const strings = [_][]const u8{
         "bug", "ben",
     };
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
-    var blocks = data.DumbList(TrieBlock){
+    const blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
@@ -713,13 +713,13 @@ test "insert double" {
 }
 
 test "insert promoting leaf to node" {
-    var strings = [_][]const u8{
+    const strings = [_][]const u8{
         "bug", "buggin",
     };
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
-    var blocks = data.DumbList(TrieBlock){
+    const blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
@@ -743,13 +743,13 @@ test "insert promoting leaf to node" {
 }
 
 test "insert longstring" {
-    var strings = [_][]const u8{
+    const strings = [_][]const u8{
         "longlonglonglonglonglongstring",
     };
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
-    var blocks = data.DumbList(TrieBlock){
+    const blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
@@ -773,7 +773,7 @@ test "insert longstring" {
 }
 
 test "insert splillover" {
-    var strings = [_][]const u8{
+    const strings = [_][]const u8{
         "0a",
         "1a",
         "2a",
@@ -794,7 +794,7 @@ test "insert splillover" {
 
     var backing: [32]TrieBlock = undefined;
     var len: usize = 0;
-    var blocks = data.DumbList(TrieBlock){
+    const blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
@@ -833,7 +833,7 @@ test "iterate spillover" {
 
     var backing: [32]TrieBlock = undefined;
     var len: usize = 0;
-    var blocks = data.DumbList(TrieBlock){
+    const blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };
@@ -870,7 +870,7 @@ test "iterate spillover" {
 }
 
 test "promote tall to wide" {
-    var strings = [_][]const u8{
+    const strings = [_][]const u8{
         "GLOBAL_aaa",
         "GLOBAL_bbb",
         "GLOBAL_ccc",
@@ -878,7 +878,7 @@ test "promote tall to wide" {
 
     var backing: [16]TrieBlock = undefined;
     var len: usize = 0;
-    var blocks = data.DumbList(TrieBlock){
+    const blocks = data.DumbList(TrieBlock){
         .len = &len,
         .map = &backing,
     };

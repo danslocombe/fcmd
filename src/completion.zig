@@ -18,7 +18,7 @@ pub const CompletionHandler = struct {
     cycle_index: usize = 0,
 
     pub fn init(trie_blocks: *data.DumbList(lego_trie.TrieBlock)) CompletionHandler {
-        var base = HistoryCompleter.init(trie_blocks);
+        const base = HistoryCompleter.init(trie_blocks);
         return .{
             .global_history = .{ .completer = base },
             .local_history = .{ .completer = base },
@@ -116,7 +116,7 @@ pub const DirectoryCompleter = struct {
         //std.debug.print("Regenerating DirectoryCompleter at '{s}'...\n", .{rel_dir});
 
         // TODO handle absolute paths
-        var cwd = std.fs.cwd();
+        const cwd = std.fs.cwd();
         var dir: std.fs.IterableDir = undefined;
 
         if (windows.CopyPastedFromStdLibWithAdditionalSafety.openIterableDir(cwd, rel_dir, .{})) |rdir| {
@@ -167,12 +167,12 @@ pub const DirectoryCompleter = struct {
             return null;
         }
 
-        var count = std.mem.count(u8, last_word, "/") + std.mem.count(u8, last_word, "\\");
+        const count = std.mem.count(u8, last_word, "/") + std.mem.count(u8, last_word, "\\");
         if (count == 0) {
             self.regenerate("");
         } else {
-            var path_index = std.mem.lastIndexOfAny(u8, last_word, "/\\").?;
-            var path = last_word[0..path_index];
+            const path_index = std.mem.lastIndexOfAny(u8, last_word, "/\\").?;
+            const path = last_word[0..path_index];
             prefix_for_query = last_word[path_index + 1 ..];
             self.regenerate(path);
         }
@@ -224,12 +224,12 @@ pub const GlobalHistoryCompleter = struct {
     completer: HistoryCompleter,
 
     pub fn insert(self: *GlobalHistoryCompleter, cmd: []const u8) void {
-        var with_prefix = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ @as([]const u8, "GLOBAL_"), cmd }) catch unreachable;
+        const with_prefix = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ @as([]const u8, "GLOBAL_"), cmd }) catch unreachable;
         self.completer.insert(with_prefix);
     }
 
     pub fn get_completion(self: *GlobalHistoryCompleter, prefix: []const u8, flags: GetCompletionFlags) ?[]const u8 {
-        var with_prefix = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ @as([]const u8, "GLOBAL_"), prefix }) catch unreachable;
+        const with_prefix = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ @as([]const u8, "GLOBAL_"), prefix }) catch unreachable;
         return self.completer.get_completion(with_prefix, flags);
     }
 };
@@ -247,14 +247,14 @@ pub const HistoryCompleter = struct {
     }
 
     pub fn get_completion(self: *HistoryCompleter, prefix: []const u8, flags: GetCompletionFlags) ?[]const u8 {
-        var view = self.trie.to_view();
+        const view = self.trie.to_view();
         var walker = lego_trie.TrieWalker.init(view, prefix);
         if (walker.walk_to()) {
             // All of this should be cleaned up, walker so ugly atm.
             var extension = walker.extension.slice();
             var end_extension: []const u8 = "";
 
-            var add_heuristic_walk = !walker.reached_leaf;
+            const add_heuristic_walk = !walker.reached_leaf;
 
             if (add_heuristic_walk) {
                 end_extension = walker.walk_to_heuristic(alloc.temp_alloc.allocator(), walker.cost);

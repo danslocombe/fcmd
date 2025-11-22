@@ -8,7 +8,48 @@ const import = @cImport({
     @cInclude("Windows.h");
 });
 
-pub usingnamespace import;
+// Export commonly used types and functions from Windows API
+pub const INPUT_RECORD = import.INPUT_RECORD;
+pub const KEY_EVENT = import.KEY_EVENT;
+pub const ReadConsoleInputW = import.ReadConsoleInputW;
+pub const CreateSemaphoreA = import.CreateSemaphoreA;
+pub const ReleaseSemaphore = import.ReleaseSemaphore;
+pub const GetLastError = import.GetLastError;
+pub const CreateEventA = import.CreateEventA;
+pub const ResetEvent = import.ResetEvent;
+pub const SetEvent = import.SetEvent;
+pub const WaitForSingleObject = import.WaitForSingleObject;
+pub const CreateFileA = import.CreateFileA;
+pub const CreateFileMapping = import.CreateFileMapping;
+pub const MapViewOfFile = import.MapViewOfFile;
+pub const OpenFileMappingA = import.OpenFileMappingA;
+pub const OPEN_ALWAYS = import.OPEN_ALWAYS;
+pub const FILE_ATTRIBUTE_NORMAL = import.FILE_ATTRIBUTE_NORMAL;
+pub const FILE_SHARE_WRITE = import.FILE_SHARE_WRITE;
+pub const PAGE_READWRITE = import.PAGE_READWRITE;
+pub const GetFileAttributesW = import.GetFileAttributesW;
+pub const GetEnvironmentVariableW = import.GetEnvironmentVariableW;
+pub const WriteConsoleA = import.WriteConsoleA;
+pub const GlobalAlloc = import.GlobalAlloc;
+pub const GlobalLock = import.GlobalLock;
+pub const GlobalUnlock = import.GlobalUnlock;
+pub const OpenClipboard = import.OpenClipboard;
+pub const EmptyClipboard = import.EmptyClipboard;
+pub const SetClipboardData = import.SetClipboardData;
+pub const CloseClipboard = import.CloseClipboard;
+pub const CF_UNICODETEXT = import.CF_UNICODETEXT;
+pub const GetConsoleMode = import.GetConsoleMode;
+pub const SetConsoleMode = import.SetConsoleMode;
+pub const ENABLE_PROCESSED_INPUT = import.ENABLE_PROCESSED_INPUT;
+pub const ENABLE_WINDOW_INPUT = import.ENABLE_WINDOW_INPUT;
+pub const ENABLE_MOUSE_INPUT = import.ENABLE_MOUSE_INPUT;
+pub const ENABLE_VIRTUAL_TERMINAL_PROCESSING = import.ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+pub const ENABLE_PROCESSED_OUTPUT = import.ENABLE_PROCESSED_OUTPUT;
+pub const STD_INPUT_HANDLE = import.STD_INPUT_HANDLE;
+pub const STD_OUTPUT_HANDLE = import.STD_OUTPUT_HANDLE;
+pub const GetStdHandle = import.GetStdHandle;
+pub const GenerateConsoleCtrlEvent = import.GenerateConsoleCtrlEvent;
+pub const Sleep = import.Sleep;
 
 pub var g_stdout: *anyopaque = undefined;
 pub var g_stdin: *anyopaque = undefined;
@@ -16,11 +57,11 @@ pub var g_stdin: *anyopaque = undefined;
 pub var buffered_ctrl_c = false;
 
 pub fn setup_console() void {
-    var stdin = import.GetStdHandle(import.STD_INPUT_HANDLE);
+    const stdin = import.GetStdHandle(import.STD_INPUT_HANDLE);
     if (stdin == null) @panic("Failed to get stdin");
     g_stdin = stdin.?;
 
-    var stdout = import.GetStdHandle(import.STD_OUTPUT_HANDLE);
+    const stdout = import.GetStdHandle(import.STD_OUTPUT_HANDLE);
     if (stdout == null) @panic("Failed to get stdin");
     g_stdout = stdout.?;
 
@@ -33,9 +74,7 @@ pub fn setup_console() void {
 pub fn set_console_mode() void {
     var current_flags: u32 = 0;
     _ = import.GetConsoleMode(g_stdin, &current_flags);
-    const ENABLE_WINDOW_INPUT = 0x0008;
     const ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200;
-    const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0200;
 
     if (import.SetConsoleMode(g_stdin, current_flags | ENABLE_WINDOW_INPUT | ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING) == 0) @panic("Failed to set console mode");
 
@@ -51,24 +90,24 @@ pub fn word_is_local_path(word: []const u8) bool {
     }
 
     // @Speed don't format just directly alloc
-    var wordZ = std.fmt.allocPrintZ(alloc.temp_alloc.allocator(), "{s}", .{word}) catch unreachable;
-    var word_u16 = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), wordZ) catch unreachable;
+    const wordZ = std.fmt.allocPrintZ(alloc.temp_alloc.allocator(), "{s}", .{word}) catch unreachable;
+    const word_u16 = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), wordZ) catch unreachable;
 
-    var file_attributes = import.GetFileAttributesW(word_u16);
+    const file_attributes = import.GetFileAttributesW(word_u16);
 
     return file_attributes != import.INVALID_FILE_ATTRIBUTES;
 }
 
 pub fn get_appdata_path() []const u8 {
-    var appdata_literal = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), "APPDATA") catch unreachable;
+    const appdata_literal = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), "APPDATA") catch unreachable;
     var buffer: [256]u16 = undefined;
-    var len = import.GetEnvironmentVariableW(appdata_literal, &buffer, 256);
+    const len = import.GetEnvironmentVariableW(appdata_literal, &buffer, 256);
     return std.unicode.utf16leToUtf8Alloc(alloc.gpa.allocator(), buffer[0..len]) catch unreachable;
 }
 
 pub fn write_console(cs: []const u8) void {
     var written: c_ulong = 0;
-    var res = import.WriteConsoleA(g_stdout, cs.ptr, @intCast(cs.len), &written, null);
+    const res = import.WriteConsoleA(g_stdout, cs.ptr, @intCast(cs.len), &written, null);
     std.debug.assert(res != 0);
     std.debug.assert(written == cs.len);
 }
@@ -82,10 +121,10 @@ pub fn copy_to_clipboard(s: []const u8) void {
     if (import.EmptyClipboard() == 0) @panic("Failed to empty the clipboard");
 
     var s_utf16: [:0]u16 = std.unicode.utf8ToUtf16LeWithNull(alloc.temp_alloc.allocator(), s) catch unreachable;
-    var data_handle = import.GlobalAlloc(0, (s_utf16.len + 1) * @sizeOf(u16));
+    const data_handle = import.GlobalAlloc(0, (s_utf16.len + 1) * @sizeOf(u16));
     if (data_handle == null) @panic("GlobalAlloc call failed when trying to copy to the clipboard");
 
-    var allocated: [*]u16 = @ptrCast(@alignCast(import.GlobalLock(data_handle)));
+    const allocated: [*]u16 = @ptrCast(@alignCast(import.GlobalLock(data_handle)));
     @memcpy(allocated, s_utf16);
     _ = import.SetClipboardData(import.CF_UNICODETEXT, data_handle);
 
@@ -144,7 +183,7 @@ pub const CopyPastedFromStdLibWithAdditionalSafety = struct {
         const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
             w.SYNCHRONIZE | w.FILE_TRAVERSE;
         const flags: u32 = if (iterable) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        var dir = try This.openDirAccessMaskW(self, sub_path_w, flags, args.no_follow);
+        const dir = try This.openDirAccessMaskW(self, sub_path_w, flags, args.no_follow);
         return dir;
     }
 

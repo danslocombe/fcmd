@@ -29,7 +29,7 @@ pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
                 continue;
             }
 
-            var utf16Char = key_event.uChar.UnicodeChar;
+            const utf16Char = key_event.uChar.UnicodeChar;
 
             buffered_utf16_chars[buffered_utf16_len] = utf16Char;
             buffered_utf16_len += 1;
@@ -41,7 +41,7 @@ pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
 
             buffered_utf16_len = 0;
 
-            var ci = ConsoleInput{
+            const ci = ConsoleInput{
                 .key = key_event.wVirtualKeyCode,
                 .utf8_char = utf8Char,
                 .modifier_keys = key_event.dwControlKeyState,
@@ -199,7 +199,7 @@ pub fn try_parse_console_inputs_as_escape_sequence(cis: []const ConsoleInput) ?I
                 chars[i] = c.utf8_char.bs[0..1];
             }
 
-            var full = std.mem.join(alloc.gpa.allocator(), " ", chars[0..(cis.len - 2)]) catch unreachable;
+            const full = std.mem.join(alloc.gpa.allocator(), " ", chars[0..(cis.len - 2)]) catch unreachable;
             std.debug.print("Warning! Unknown escape sequence Len: {}, Start: ESC [ {s}", .{ cis.len, full });
         }
     }
@@ -250,7 +250,7 @@ pub const Input = union(enum) {
     Enter: void,
 
     pub fn try_from_console_input(ci: ConsoleInput) ?Input {
-        var has_ctrl = (ci.modifier_keys & 0x08) != 0;
+        const has_ctrl = (ci.modifier_keys & 0x08) != 0;
 
         // https://github.com/danslocombe/fishycmd/blob/master/src/CLI/KeyPress.hs
 
@@ -389,7 +389,7 @@ pub const Utf8Char = struct {
     }
 
     pub fn slice(self: *const Utf8Char) []const u8 {
-        var len = std.unicode.utf8ByteSequenceLength(self.bs[0]) catch @panic("Error getting utf8char len");
+        const len = std.unicode.utf8ByteSequenceLength(self.bs[0]) catch @panic("Error getting utf8char len");
         return self.bs[0..@intCast(len)];
     }
 

@@ -36,7 +36,7 @@ pub const Shell = struct {
         if (Command.try_get_from_input(in)) |command| {
             switch (command) {
                 .Run => {
-                    var cmd = self.prompt.bs.items;
+                    const cmd = self.prompt.bs.items;
 
                     // @TODO Handle this nicely
                     std.debug.print("\n", .{});
@@ -58,7 +58,7 @@ pub const Shell = struct {
                     self.partial_complete_prev_cursor_pos = null;
                 },
                 .HistoryBack => {
-                    var current_history = self.history.get_current();
+                    const current_history = self.history.get_current();
                     if (!std.mem.eql(u8, current_history, self.prompt.bs.items)) {
                         // Reset to current history item
                         self.prompt.clear();
@@ -91,7 +91,7 @@ pub const Shell = struct {
                     }
                 },
                 .PartialComplete, .PartialCompleteReverse => {
-                    var reverse = command == Command.PartialCompleteReverse;
+                    const reverse = command == Command.PartialCompleteReverse;
 
                     if (self.partial_complete_prev_cursor_pos) |pos| {
                         // User has previously tab completed from somewhere
@@ -142,7 +142,7 @@ pub const Shell = struct {
                             }
 
                             var end_index = start_index;
-                            var add_char: ?u8 = null;
+                            const add_char: ?u8 = null;
                             for (start_index..cc.len) |i| {
                                 if (cc[i] == ' ') {
                                     break;
@@ -210,9 +210,9 @@ pub const Shell = struct {
 
         var prompt_buffer: []const u8 = self.prompt.bs.items;
         if (self.prompt.highlight) |highlight| {
-            var before_highlight = prompt_buffer[0..highlight.start_pos.byte_index];
-            var highlighted = prompt_buffer[highlight.start_pos.byte_index..highlight.end_pos.byte_index];
-            var after_highlight = prompt_buffer[highlight.end_pos.byte_index..];
+            const before_highlight = prompt_buffer[0..highlight.start_pos.byte_index];
+            const highlighted = prompt_buffer[highlight.start_pos.byte_index..highlight.end_pos.byte_index];
+            const after_highlight = prompt_buffer[highlight.end_pos.byte_index..];
             prompt_buffer = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "{s}\x1b[42m{s}\x1b[0m{s}", .{ before_highlight, highlighted, after_highlight }) catch unreachable;
         }
 
@@ -225,8 +225,8 @@ pub const Shell = struct {
         }
 
         // TODO handle setting cursor y pos.
-        var cursor_x_pos = built_preprompt.len + self.prompt.pos.x + 1;
-        var set_cursor_to_prompt_pos = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[{}G", .{cursor_x_pos}) catch unreachable;
+        const cursor_x_pos = built_preprompt.len + self.prompt.pos.x + 1;
+        const set_cursor_to_prompt_pos = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[{}G", .{cursor_x_pos}) catch unreachable;
 
         var commands = [_][]const u8{
             clear_commands,
@@ -236,7 +236,7 @@ pub const Shell = struct {
             set_cursor_to_prompt_pos,
         };
 
-        var buffer = std.mem.concat(alloc.temp_alloc.allocator(), u8, &commands) catch unreachable;
+        const buffer = std.mem.concat(alloc.temp_alloc.allocator(), u8, &commands) catch unreachable;
         windows.write_console(buffer);
     }
 };
@@ -251,7 +251,7 @@ pub const History = struct {
     }
 
     pub fn back(self: *History) ?[]const u8 {
-        var new_read_pos = self.buffer.index_from_base_index_and_offset(self.read_pos, -1);
+        const new_read_pos = self.buffer.index_from_base_index_and_offset(self.read_pos, -1);
         var value = self.buffer.buffer[new_read_pos];
         if (value.len == 0) {
             return null;
@@ -267,10 +267,10 @@ pub const History = struct {
             return null;
         }
 
-        var value = self.buffer.buffer[self.read_pos];
+        const value = self.buffer.buffer[self.read_pos];
         _ = value;
 
-        var index = self.buffer.index_from_base_index_and_offset(self.read_pos, 1);
+        const index = self.buffer.index_from_base_index_and_offset(self.read_pos, 1);
         self.read_pos = index;
         return self.buffer.buffer[index];
     }
@@ -280,13 +280,13 @@ pub const History = struct {
             return;
         }
 
-        var current_at_write_pos = self.buffer.buffer[self.write_pos];
+        const current_at_write_pos = self.buffer.buffer[self.write_pos];
         if (std.mem.eql(u8, cmd, current_at_write_pos)) {
             // Don't push duplicate commands to history
             return;
         }
 
-        var cmd_copy = alloc.gpa_alloc_idk(u8, cmd.len);
+        const cmd_copy = alloc.gpa_alloc_idk(u8, cmd.len);
         @memcpy(cmd_copy, cmd);
         var discarded = self.buffer.push(cmd_copy);
         if (discarded.len > 0) {

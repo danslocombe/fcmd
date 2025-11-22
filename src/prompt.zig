@@ -52,7 +52,7 @@ pub const Prompt = struct {
     }
 
     pub fn apply_input(self: *Prompt, in: input.Input) void {
-        var prev_pos = self.pos;
+        const prev_pos = self.pos;
         switch (in) {
             .Append => |*c| {
                 if (self.highlight) |_| {
@@ -63,7 +63,7 @@ pub const Prompt = struct {
                 if (self.pos.byte_index == self.bs.items.len) {
                     self.bs.appendSlice(c_slice) catch unreachable;
                 } else {
-                    var bs_initial_len = self.bs.items.len;
+                    const bs_initial_len = self.bs.items.len;
 
                     // Insert into middle
                     // Can this be nicer?
@@ -91,7 +91,7 @@ pub const Prompt = struct {
             .BlockLeft => |flags| {
                 var hit_block_stop_char = false;
                 while (self.move_left()) |x| {
-                    var x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
+                    const x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
                     if (hit_block_stop_char) {
                         if (x_is_stop_char) {
                             // Continue moving over stop characters.
@@ -119,7 +119,7 @@ pub const Prompt = struct {
             .BlockRight => |flags| {
                 var hit_block_stop_char = false;
                 while (self.move_right()) |x| {
-                    var x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
+                    const x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
                     if (hit_block_stop_char) {
                         if (x_is_stop_char) {
                             // Continue moving over stop characters.
@@ -168,7 +168,7 @@ pub const Prompt = struct {
 
                 var hit_block_stop_char = false;
                 while (self.delete()) |x| {
-                    var x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
+                    const x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
                     if (hit_block_stop_char) {
                         if (x_is_stop_char) {
                             // Continue chomping stop characters.
@@ -269,7 +269,7 @@ pub const Prompt = struct {
             .i = self.pos.byte_index,
         };
 
-        var ret = iter.nextCodepointSlice();
+        const ret = iter.nextCodepointSlice();
         self.pos.byte_index = iter.i;
 
         if (ret) |c| {
@@ -280,8 +280,8 @@ pub const Prompt = struct {
     }
 
     fn update_highlighting_after_move(self: *Prompt, prev_pos: PromptCursorPos, flags: input.CursorMovementFlags) void {
-        var not_moving = self.pos.byte_index == prev_pos.byte_index;
-        var moving_right = self.pos.byte_index > prev_pos.byte_index;
+        const not_moving = self.pos.byte_index == prev_pos.byte_index;
+        const moving_right = self.pos.byte_index > prev_pos.byte_index;
 
         if (flags.highlight) {
             if (not_moving) {
@@ -290,7 +290,7 @@ pub const Prompt = struct {
             }
 
             if (self.highlight) |*highlight| {
-                var cursor_at_start = prev_pos.byte_index < highlight.end_pos.byte_index;
+                const cursor_at_start = prev_pos.byte_index < highlight.end_pos.byte_index;
 
                 if (cursor_at_start) {
                     highlight.start_pos = self.pos;
@@ -302,7 +302,7 @@ pub const Prompt = struct {
                 // eg with a shift + home input
                 // In that case we swap the highlight positions.
                 if (highlight.start_pos.byte_index > highlight.end_pos.byte_index) {
-                    var start = highlight.start_pos;
+                    const start = highlight.start_pos;
                     highlight.start_pos = highlight.end_pos;
                     highlight.end_pos = start;
                 }
@@ -333,10 +333,10 @@ pub const Prompt = struct {
         std.debug.assert(self.highlight != null);
         var highlight = self.highlight.?;
 
-        var after_highlighted = self.bs.items[highlight.end_pos.byte_index..];
+        const after_highlighted = self.bs.items[highlight.end_pos.byte_index..];
         std.mem.copyForwards(u8, self.bs.items[highlight.start_pos.byte_index..], after_highlighted);
 
-        var delete_len = highlight.end_pos.byte_index - highlight.start_pos.byte_index;
+        const delete_len = highlight.end_pos.byte_index - highlight.start_pos.byte_index;
         self.bs.resize(self.bs.items.len - delete_len) catch unreachable;
         self.pos = highlight.start_pos;
 
@@ -344,10 +344,10 @@ pub const Prompt = struct {
     }
 
     pub fn delete(self: *Prompt) ?[]const u8 {
-        var prev_byte_index = self.pos.byte_index;
-        var ret = self.move_left();
+        const prev_byte_index = self.pos.byte_index;
+        const ret = self.move_left();
 
-        var delete_byte_count = prev_byte_index - self.pos.byte_index;
+        const delete_byte_count = prev_byte_index - self.pos.byte_index;
         if (delete_byte_count > 0) {
             if (prev_byte_index != self.bs.items.len) {
                 // Have to shift some bytes in the middle
