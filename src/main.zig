@@ -166,18 +166,26 @@ fn runVerifyTest(state_path: []const u8, strings: []const []const u8) !u8 {
     };
     defer allocator.free(abs_path);
 
-    const all_found = test_mp.verifyStringsInStateFile(allocator, abs_path, strings) catch |err| {
-        std.debug.print("Error verifying strings: {}\n", .{err});
-        return 1;
-    };
+    // Open the state file using memory mapping (same as main path)
+    var context = data.GlobalContext{};
+    data.BackingData.init(abs_path, &context);
 
-    if (all_found) {
-        std.debug.print("All {d} strings verified in {s}\n", .{ strings.len, state_path });
-        return 0;
-    } else {
-        std.debug.print("Verification failed for {s}\n", .{state_path});
-        return 1;
+    // Create trie view from memory-mapped data
+    var trie = lego_trie.Trie.init(&context.backing_data.trie_blocks);
+    const view = trie.to_view();
+
+    for (strings) |s| {
+        var walker = lego_trie.TrieWalker.init(view, s);
+        if (walker.walk_to() and walker.char_id == s.len) {
+            // Found
+        } else {
+            std.debug.print("Not found: '{s}' in {s}\n", .{ s, state_path });
+            return 1;
+        }
     }
+
+    std.debug.print("All {d} strings verified in {s}\n", .{ strings.len, state_path });
+    return 0;
 }
 
 fn runGetCostTest(state_path: []const u8, string: []const u8) !u8 {
@@ -188,18 +196,23 @@ fn runGetCostTest(state_path: []const u8, string: []const u8) !u8 {
     };
     defer allocator.free(abs_path);
 
-    const cost = test_mp.getStringCost(allocator, abs_path, string) catch |err| {
-        std.debug.print("Error getting cost: {}\n", .{err});
-        return 1;
-    };
+    // Open the state file using memory mapping (same as main path)
+    var context = data.MMapContext{};
+    data.BackingData.init(abs_path, &context);
 
-    if (cost) |c| {
-        std.debug.print("{d}\n", .{c});
+    // Create trie view from memory-mapped data
+    var trie = lego_trie.Trie.init(&context.backing_data.trie_blocks);
+    const view = trie.to_view();
+
+    // Walk to the string and get its cost
+    var walker = lego_trie.TrieWalker.init(view, string);
+    if (walker.walk_to() and walker.char_id == string.len) {
+        std.debug.print("{d}\n", .{walker.cost});
         return 0;
-    } else {
-        std.debug.print("String not found: '{s}'\n", .{string});
-        return 1;
     }
+
+    std.debug.print("String not found: '{s}'\n", .{string});
+    return 1;
 }
 
 pub fn main() !void {
