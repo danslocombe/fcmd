@@ -52,6 +52,7 @@ pub const GenerateConsoleCtrlEvent = import.GenerateConsoleCtrlEvent;
 pub const Sleep = import.Sleep;
 pub const GetFileSizeEx = import.GetFileSizeEx;
 pub const UnmapViewOfFile = import.UnmapViewOfFile;
+pub const FlushViewOfFile = import.FlushViewOfFile;
 pub const GetCurrentProcessId = import.GetCurrentProcessId;
 pub const LARGE_INTEGER = import.LARGE_INTEGER;
 

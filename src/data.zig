@@ -307,6 +307,12 @@ pub const BackingData = struct {
             @memcpy(map_magic_number, &magic_number);
             version.* = current_version;
             mmap_context.backing_data.size_in_bytes_ptr.* = @intCast(size);
+            
+            // Flush the header to disk
+            if (windows.FlushViewOfFile(mmap_context.backing_data.map_view_pointer, 0) == 0) {
+                const last_error = windows.GetLastError();
+                alloc.fmt_panic("FlushViewOfFile failed: Error {}", .{last_error});
+            }
         } else if (magic_equal) {
             if (version.* == current_version) {
                 log.log_debug("Successfully read existing state, {} bytes\n", .{mmap_context.backing_data.size_in_bytes_ptr.*});
@@ -321,6 +327,12 @@ pub const BackingData = struct {
 
         if (new_size) |x| {
             mmap_context.backing_data.size_in_bytes_ptr.* = @intCast(x);
+            
+            // Flush the updated size to disk
+            if (windows.FlushViewOfFile(mmap_context.backing_data.map_view_pointer, 0) == 0) {
+                const last_error = windows.GetLastError();
+                alloc.fmt_panic("FlushViewOfFile failed: Error {}", .{last_error});
+            }
         }
     }
 };
@@ -407,6 +419,13 @@ pub fn DumbList(comptime T: type) type {
 
                 ensure_other_processes_have_released_handle(self.mmap_context);
                 BackingData.open_map(new_size, self.mmap_context);
+                
+                // Flush before signaling other processes
+                if (windows.FlushViewOfFile(self.mmap_context.backing_data.map_view_pointer, 0) == 0) {
+                    const last_error = windows.GetLastError();
+                    alloc.fmt_panic("FlushViewOfFile failed: Error {}", .{last_error});
+                }
+                
                 signal_other_processes_can_reaquire_handle(self.mmap_context);
             }
 
