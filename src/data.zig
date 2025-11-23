@@ -264,7 +264,7 @@ pub const BackingData = struct {
 
         // @Reliability switch to MapViewOfFile3 to guarentee alignment
         // https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-mapviewoffile3
-        const map_view = windows.MapViewOfFile(mmap_context.backing_data.map_pointer.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(actual_size));
+        const map_view = windows.MapViewOfFile(mmap_context.backing_data.map_pointer.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(size));
 
         if (map_view == null) {
             const last_error = windows.GetLastError();
@@ -273,7 +273,7 @@ pub const BackingData = struct {
 
         mmap_context.backing_data.map_view_pointer = map_view.?;
 
-        var map = @as([*]volatile u8, @ptrCast(mmap_context.backing_data.map_view_pointer))[0..actual_size];
+        var map = @as([*]volatile u8, @ptrCast(mmap_context.backing_data.map_view_pointer))[0..size];
 
         const map_magic_number = map[0..4];
         const version = &map[4];
