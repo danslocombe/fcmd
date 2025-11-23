@@ -48,11 +48,12 @@ fn generatePatternString(allocator: std.mem.Allocator, rng: std.Random, pattern_
             }
             return str;
         },
-        4 => { // Unicode-like sequences (high ASCII)
+        4 => { // Mixed alphanumeric with symbols
+            const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-./";
             const len = rng.intRangeAtMost(usize, 5, 20);
             const str = try allocator.alloc(u8, len);
             for (str) |*c| {
-                c.* = @intCast(rng.intRangeAtMost(u8, 128, 255));
+                c.* = charset[rng.intRangeAtMost(usize, 0, charset.len - 1)];
             }
             return str;
         },
