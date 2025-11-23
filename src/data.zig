@@ -52,30 +52,6 @@ pub const BackingData = struct {
     trie_blocks: DumbList(lego_trie.TrieBlock),
     size_in_bytes_ptr: *volatile i32,
 
-    ///// Open a memory-mapped file for a specific state file path (for testing)
-    ///// This creates a new BackingData instance with sync objects for testing
-    //pub fn open_test_state_file(filepath: [*c]const u8) !BackingData {
-    //    // Create unique semaphore and event names for this test instance
-    //    const pid = windows.GetCurrentProcessId();
-    //    const random = std.crypto.random.int(u32);
-    //    const test_semaphore_name = alloc.tmp_for_c_introp_fmt("Local\\fcmd_test_semaphore_{d}_{d}", .{ pid, random });
-    //    const test_unload_event_name = alloc.tmp_for_c_introp_fmt("fcmd_test_unload_{d}_{d}", .{ pid, random });
-    //    const test_reload_event_name = alloc.tmp_for_c_introp_fmt("fcmd_test_reload_{d}_{d}", .{ pid, random });
-
-    //    return init_internal(filepath, test_semaphore_name, test_unload_event_name, test_reload_event_name, true);
-    //}
-
-    ///// Close and clean up a test state file mapping
-    //pub fn close_test_state_file(self: *BackingData) void {
-    //    _ = windows.UnmapViewOfFile(self.map_view_pointer);
-    //    if (self.map_pointer) |map_ptr| {
-    //        std.os.windows.CloseHandle(map_ptr);
-    //    }
-    //    if (self.file_handle) |file_handle| {
-    //        std.os.windows.CloseHandle(file_handle);
-    //    }
-    //}
-
     pub fn init(state_dir: []const u8, context: *MMapContext) void {
         std.fs.makeDirAbsolute(state_dir) catch |err| {
             switch (err) {
@@ -96,7 +72,7 @@ pub const BackingData = struct {
 
         context.backing_data = result;
 
-        // Do a small initial load to just read out the size.
+        // Open the mapping - will automatically discover size if it's an existing mapping
         open_map(null, context);
         open_map(@intCast(context.backing_data.size_in_bytes_ptr.*), context);
 
@@ -246,6 +222,7 @@ pub const BackingData = struct {
 
     pub fn open_map(new_size: ?usize, mmap_context: *MMapContext) void {
         log.log_debug("Opening map. new_size {any}\n", new_size);
+
         const size = new_size orelse initial_size;
 
         if (mmap_context.backing_data.map_pointer) |map_ptr| {
@@ -255,12 +232,11 @@ pub const BackingData = struct {
 
         const map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
 
-        // Try and open
+        // Try and open existing mapping
         const m_open_mapping_result = windows.OpenFileMappingA(FILE_MAP_ALL_ACCESS, 0, map_name);
         if (m_open_mapping_result) |open_mapping_result| {
             log.log_debug("Opened existing file mapping!\n", .{});
             mmap_context.backing_data.map_pointer = open_mapping_result;
-            // Use existing
         } else {
             log.log_debug("Could not open file mapping, creating new..\n", .{});
             // Create file mapping
@@ -288,7 +264,7 @@ pub const BackingData = struct {
 
         // @Reliability switch to MapViewOfFile3 to guarentee alignment
         // https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-mapviewoffile3
-        const map_view = windows.MapViewOfFile(mmap_context.backing_data.map_pointer.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(size));
+        const map_view = windows.MapViewOfFile(mmap_context.backing_data.map_pointer.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(actual_size));
 
         if (map_view == null) {
             const last_error = windows.GetLastError();
@@ -297,7 +273,7 @@ pub const BackingData = struct {
 
         mmap_context.backing_data.map_view_pointer = map_view.?;
 
-        var map = @as([*]volatile u8, @ptrCast(mmap_context.backing_data.map_view_pointer))[0..size];
+        var map = @as([*]volatile u8, @ptrCast(mmap_context.backing_data.map_view_pointer))[0..actual_size];
 
         const map_magic_number = map[0..4];
         const version = &map[4];
@@ -344,10 +320,6 @@ pub const BackingData = struct {
         }
 
         if (new_size) |x| {
-            // We are explicitly resizing, this is either because
-            // we have read the an existing file with a given size and we are mapping to that
-            // or we have just resized.
-            // In the first case it is harmless to set this, in the second we need to set this.
             mmap_context.backing_data.size_in_bytes_ptr.* = @intCast(x);
         }
     }
@@ -432,11 +404,6 @@ pub fn DumbList(comptime T: type) type {
             if (self.len.* >= self.map.len) {
                 // Resize
                 const new_size = initial_size + self.map.len * 2 * @sizeOf(lego_trie.TrieBlock);
-
-                // @Hack set the value in the backing data to the new size
-                // before telling everyone to unload and reload as they need to know
-                // the size to read first.
-                self.mmap_context.backing_data.size_in_bytes_ptr.* = @intCast(new_size);
 
                 ensure_other_processes_have_released_handle(self.mmap_context);
                 BackingData.open_map(new_size, self.mmap_context);
@@ -537,7 +504,6 @@ pub fn background_unloader_loop(mmap_context: *MMapContext) void {
         mmap_context.data_mutex.lock();
         // Now locally safe to unload
 
-        const reload_size = mmap_context.backing_data.size_in_bytes_ptr.*;
         log.log_debug("Unloading file...\n", .{});
         if (mmap_context.backing_data.map_pointer) |map_ptr| {
             std.os.windows.CloseHandle(map_ptr);
@@ -562,9 +528,7 @@ pub fn background_unloader_loop(mmap_context: *MMapContext) void {
 
         log.log_debug("[Background Unloader] Released semaphore, prev count {}\n", .{prev_semaphore_count});
 
-        // This shoullld be fine, do we need more guarentees?
-        // This should be opening with the same size as everyone else
-        BackingData.open_map(@intCast(reload_size), mmap_context);
+        BackingData.open_map(null, mmap_context);
 
         mmap_context.data_mutex.unlock();
     }
