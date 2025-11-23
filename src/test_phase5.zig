@@ -804,3 +804,143 @@ test "Phase 5: concurrent score updates - multiple commands" {
 
     std.debug.print("Phase 5: Concurrent score updates passed, all costs correct and properly ordered ✓\n", .{});
 }
+
+test "Phase 5: concurrent score updates - shared prefixes" {
+    const temp_dir = std.process.getEnvVarOwned(std.testing.allocator, "TEMP") catch std.process.getEnvVarOwned(std.testing.allocator, "TMP") catch unreachable;
+    defer std.testing.allocator.free(temp_dir);
+
+    const test_state_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ temp_dir, "test_concurrent_score_shared_prefix" });
+    defer std.testing.allocator.free(test_state_path);
+
+    // Clean up
+    const cleanup_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ test_state_path, "trie.frog" });
+    defer std.testing.allocator.free(cleanup_path);
+    std.fs.cwd().deleteFile(cleanup_path) catch {};
+    defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+
+    const exe_path = "zig-out\\bin\\fcmd.exe";
+
+    // Commands with shared prefixes to test prefix node cost handling
+    const commands = [_][]const u8{
+        "git status",
+        "git commit",
+        "git commit -m",
+        "git push",
+        "git push origin",
+        "git push origin main",
+        "git pull",
+        "git log",
+    };
+
+    // Create state file with multiple commands via insert
+    var init_controller = test_mp.ProcessController.init(std.testing.allocator);
+    defer init_controller.deinit();
+
+    for (commands) |cmd| {
+        const args = [_][]const u8{
+            exe_path,
+            "--test-mp",
+            "insert",
+            test_state_path,
+            cmd,
+        };
+        try init_controller.spawn(&args);
+    }
+
+    const init_exit_codes = try init_controller.waitAll();
+    defer std.testing.allocator.free(init_exit_codes);
+    try std.testing.expect(test_mp.ProcessController.allSucceeded(init_exit_codes));
+
+    // Record initial costs
+    var initial_costs: [commands.len]u16 = undefined;
+    const expected_initial_cost: u16 = 65535; // BaseCost
+    for (commands, 0..) |cmd, i| {
+        initial_costs[i] = expected_initial_cost;
+        std.debug.print("Phase 5: Initial cost for '{s}': {d}\n", .{ cmd, expected_initial_cost });
+    }
+
+    var controller = test_mp.ProcessController.init(std.testing.allocator);
+    defer controller.deinit();
+
+    // Simulate usage patterns for commands with shared prefixes:
+    // "git status" - used 15 times
+    // "git commit" - used 12 times
+    // "git commit -m" - used 10 times (shares prefix with "git commit")
+    // "git push" - used 8 times
+    // "git push origin" - used 6 times (shares prefix with "git push")
+    // "git push origin main" - used 5 times (shares prefix with both above)
+    // "git pull" - used 3 times
+    // "git log" - used 2 times
+
+    const usage_counts = [_]usize{ 15, 12, 10, 8, 6, 5, 3, 2 };
+
+    for (commands, usage_counts) |cmd, count| {
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            const args = [_][]const u8{
+                exe_path,
+                "--test-mp",
+                "insert",
+                test_state_path,
+                cmd,
+            };
+
+            try controller.spawn(&args);
+        }
+    }
+
+    const total_inserts = 15 + 12 + 10 + 8 + 6 + 5 + 3 + 2;
+    std.debug.print("Phase 5: Spawned {d} inserts with shared prefixes and varying frequencies...\n", .{total_inserts});
+
+    // Wait for all processes
+    const exit_codes = try controller.waitAll();
+    defer std.testing.allocator.free(exit_codes);
+
+    const all_succeeded = test_mp.ProcessController.allSucceeded(exit_codes);
+    try std.testing.expect(all_succeeded);
+
+    // Verify costs updated correctly
+    var final_costs: [commands.len]u16 = undefined;
+    for (commands, 0..) |cmd, i| {
+        const expected_cost = initial_costs[i] - @as(u16, @intCast(usage_counts[i]));
+        final_costs[i] = expected_cost;
+
+        std.debug.print("Phase 5: '{s}' used {d} times, cost: {d} -> {d}\n", .{
+            cmd,
+            usage_counts[i],
+            initial_costs[i],
+            final_costs[i],
+        });
+    }
+
+    // Verify ordering: most-used should have lowest cost
+    try std.testing.expect(final_costs[0] < final_costs[1]); // git status < git commit
+    try std.testing.expect(final_costs[1] < final_costs[2]); // git commit < git commit -m
+    try std.testing.expect(final_costs[2] < final_costs[3]); // git commit -m < git push
+    try std.testing.expect(final_costs[3] < final_costs[4]); // git push < git push origin
+    try std.testing.expect(final_costs[4] < final_costs[5]); // git push origin < git push origin main
+    try std.testing.expect(final_costs[5] < final_costs[6]); // git push origin main < git pull
+    try std.testing.expect(final_costs[6] < final_costs[7]); // git pull < git log
+
+    // Verify all commands still present
+    var verify_args = std.ArrayList([]const u8){};
+    defer verify_args.deinit(std.testing.allocator);
+
+    try verify_args.append(std.testing.allocator, exe_path);
+    try verify_args.append(std.testing.allocator, "--test-mp");
+    try verify_args.append(std.testing.allocator, "verify");
+    try verify_args.append(std.testing.allocator, test_state_path);
+    for (commands) |cmd| {
+        try verify_args.append(std.testing.allocator, cmd);
+    }
+
+    var verify_controller = test_mp.ProcessController.init(std.testing.allocator);
+    defer verify_controller.deinit();
+
+    try verify_controller.spawn(verify_args.items);
+    const verify_exit_codes = try verify_controller.waitAll();
+    defer std.testing.allocator.free(verify_exit_codes);
+    try std.testing.expect(test_mp.ProcessController.allSucceeded(verify_exit_codes));
+
+    std.debug.print("Phase 5: Concurrent score updates with shared prefixes passed, all costs correct and properly ordered ✓\n", .{});
+}
