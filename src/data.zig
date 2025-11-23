@@ -35,7 +35,7 @@ pub const MMapContext = struct {
 
     unload_event: *anyopaque = undefined,
     reload_event: *anyopaque = undefined,
-    hack_we_are_the_process_requesting_an_unload: bool = false,
+    hack_we_are_the_process_requesting_an_unload: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     cross_process_semaphore: *anyopaque = undefined,
 
     filepath: [*c]const u8 = "",
@@ -448,7 +448,7 @@ pub fn DumbList(comptime T: type) type {
 pub fn ensure_other_processes_have_released_handle(mmap_context: *MMapContext) void {
     log.log_debug("Ensuring exclusive control...\n", .{});
 
-    mmap_context.hack_we_are_the_process_requesting_an_unload = true;
+    mmap_context.hack_we_are_the_process_requesting_an_unload.store(true, .release);
 
     if (windows.ResetEvent(mmap_context.reload_event) == 0) {
         const last_error = windows.GetLastError();
@@ -492,7 +492,7 @@ pub fn ensure_other_processes_have_released_handle(mmap_context: *MMapContext) v
 }
 
 pub fn signal_other_processes_can_reaquire_handle(mmap_context: *MMapContext) void {
-    mmap_context.hack_we_are_the_process_requesting_an_unload = false;
+    mmap_context.hack_we_are_the_process_requesting_an_unload.store(false, .release);
 
     if (windows.ResetEvent(mmap_context.unload_event) == 0) {
         const last_error = windows.GetLastError();
@@ -511,7 +511,7 @@ pub fn background_unloader_loop(mmap_context: *MMapContext) void {
     while (true) {
         _ = windows.WaitForSingleObject(mmap_context.unload_event, INFINITE);
 
-        if (mmap_context.hack_we_are_the_process_requesting_an_unload) {
+        if (mmap_context.hack_we_are_the_process_requesting_an_unload.load(.acquire)) {
             // @Reliability race conditions here?
             //log.log_debug("[Background Unloader] It is us requesting an unload! Skipping", .{});
 
