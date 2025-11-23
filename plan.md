@@ -1,813 +1,348 @@
-# Test Suite Plan for Memory-Mapped Trie Corruption Detection
+# Memory-Mapped File Data Corruption Analysis & Fix Plan
 
-## Current Status: Phase 7 Complete - Fuzzing & Chaos Engineering ✅ (November 22, 2025)
+## Executive Summary
 
-**Latest Results:** 54/54 tests passing
-- Phase 0: Basic Infrastructure ✅ (11 tests)
-- Phase 1: Single-Process Stress ✅ (6 tests)
-- Phase 2: Data Integrity ✅ (7 tests)
-- Phase 3: Edge Cases & Boundaries ✅ (7 tests)
-- Phase 4: Multi-Process Infrastructure ✅ (3 tests)
-- Phase 4.5: Multi-Process Concurrency ✅ (3 tests)
-- Phase 5: Advanced Multi-Process Scenarios ✅ (5 tests)
-- Phase 6: File System Integration ✅ (4 tests)
-- **Phase 7: Fuzzing & Chaos Engineering ✅ (4 tests)**
-  - Random operation fuzzing (1000 ops)
-  - Property-based invariants
-  - Adversarial stress patterns
-  - Deterministic replay with seeds
-- Legacy tests: 4 tests
-
-**Phase 4 Progress:**
-- ✅ Test state file creation and serialization
-- ✅ CLI test mode (--test-mp insert/search/verify)
-- ✅ Basic infrastructure tests
-- ✅ Process spawning and coordination
-- ✅ Multi-process concurrency tests (Phase 4.5)
-
-**Phase 4.5 Complete:** Three actual multi-process tests implemented and passing:
-1. ✅ Simultaneous readers (5 processes searching 100 strings)
-2. ✅ Concurrent readers + writer (4 readers + 10 inserts)
-3. ✅ Multiple writers (3 writers × 20 inserts = 60 concurrent writes)
-
-**Phase 5 Complete:** Five advanced multi-process scenarios including score validation:
-1. ✅ Rapid insert stress (5 processes × 50 inserts = 250 concurrent operations)
-2. ✅ Search during concurrent inserts (3 readers + 60 writer operations)
-3. ✅ Shared prefix stress (60 concurrent inserts forcing tall→wide promotions)
-4. ✅ Score updates - duplicate inserts (validates cost decreases correctly)
-5. ✅ Concurrent score updates (validates priority ordering under concurrent usage)
-
-**Next:** Consider file system integration tests (cold start, corruption detection, etc.).
-
-## Overview
-The trie uses a complex memory-mapped file system with:
-- Cross-process synchronization (semaphores, events)
-- Dynamic resizing with process coordination
-- Mixed tall/wide node structures
-- Volatile memory access patterns
-- Background thread for unload/reload
-
-## Implementation Phases
-
-### **Phase 0: Basic Test Infrastructure ✅ COMPLETE**
-Successfully implemented basic testing infrastructure:
-
-**Completed:**
-- ✅ Created `src/test_exports.zig` with Phase 0 test suite (11 tests, all passing)
-- ✅ Implemented validation helpers in `TestHelpers`:
-  - `validate_trie_structure()` - walks entire trie, checks pointers, verifies no cycles
-  - `validate_can_find()` - verifies inserted strings are findable
-  - `validate_all_can_find()` - bulk verification helper
-  - `count_total_nodes()` - counts all blocks for sanity checks
-  - `create_test_trie()` - helper to set up test trie with backing buffer
-- ✅ Passing tests (10 corruption tests + 1 stress test):
-  1. Basic insertion - insert 10 strings and verify all findable
-  2. Duplicate insertion - verify cost updates correctly
-  3. Tall to wide promotion - insert 3 strings forcing promotion
-  4. Node spillover - insert enough strings to cause sibling allocation
-  5. Long string insertion - strings longer than TallStringLen (22)
-  6. Common prefix handling - deep tree structure verification
-  7. Prefix search - partial matches return extensions
-  8. Empty trie operations - search in empty trie
-  9. Single character strings - edge case handling
-  10. Stress test - insert 100 varied strings (uses 131 blocks)
-
-**Technical Notes:**
-- Tests use fixed backing arrays (512-2048 blocks) to avoid memory-mapped resize complexity
-- Added guard in `DumbList.append()` to detect test mode and panic with helpful message if array too small
-- Fixed critical bug: `DumbList` pointer was going out of scope (now passed from test caller)
-- All tests run without initializing global `BackingData` - pure in-memory testing
-
-**Build Status:**
-- Full test suite: 15/17 tests passing
-- 2 legacy test failures (brittle block ID assertions, not corruption-related)
-- All Phase 0 corruption tests: 10/10 passing ✅
-
-**Ready for:** Phase 1 - Single-process stress tests
+Analysis of `data.zig` reveals multiple critical issues in the memory-mapped file implementation that can cause data corruption in multi-process scenarios. The most severe issue is a race condition during resize operations where the size is updated before the actual remapping occurs.
 
 ---
 
-### **Phase 1: Single-Process Stress Tests ✅ COMPLETE**
+## Critical Issues Identified
 
-**Goal:** Test trie under heavy load with various insertion patterns to detect corruption in single-process scenarios.
+### 🔴 CRITICAL: Issue #1 - Resize Race Condition
+**Location**: `DumbList.append()` lines 457-471
 
-**Completed Tests:**
-1. ✅ Stress test (100 strings) - Basic stress from Phase 0 - **131 blocks**
-2. ✅ Heavy insertion - Insert 1,000 commands rapidly - **1,301 blocks**
-3. ✅ Very long strings - Insert 30 commands with 100+ character paths - **53 blocks**
-4. ✅ Alternating tall/wide - 60 strings forcing tall→wide promotions - **80 blocks**
-5. ✅ Deep trie - 81 strings with long common prefixes creating deep tree - **168 blocks**
-6. ✅ Wide trie - 310 strings with diverse first characters creating wide fan-out - **450 blocks**
+**Problem**: 
+```zig
+self.mmap_context.backing_data.size_in_bytes_ptr.* = @intCast(new_size);
+ensure_other_processes_have_released_handle(self.mmap_context);
+BackingData.open_map(new_size, self.mmap_context);
+```
 
-**Results:**
-- All 6 stress tests passing ✅
-- Successfully validated structure integrity after heavy loads
-- All inserted strings verified findable via `validate_all_can_find()`
-- No crashes or corruption detected under single-process stress
-- Block allocation scales appropriately with insertion patterns
+The size is written to the OLD memory mapping before creating the NEW mapping. Other processes reading this size value will attempt to access memory beyond the valid range, causing:
+- Access violations
+- Reading uninitialized/garbage data
+- Potential segmentation faults
 
-**Technical Notes:**
-- Tests use fixed backing arrays (1024-2048 blocks) to handle stress loads
-- Patterns tested: rapid insertion, long strings, tall/wide promotion, deep/wide trees
-- All tests run without global `BackingData` initialization - pure in-memory
-
-**Deferred:**
-- Resize triggers (requires memory-mapped file setup) - moved to future phase
-
-**Build Status:**
-- Full test suite: 22/22 tests passing ✅
-- All Phase 0 + Phase 1 tests passing
-
-**Ready for:** Phase 2 - Data integrity validation
+**Impact**: HIGH - Direct cause of data corruption
 
 ---
 
-### **Phase 2: Data Integrity Tests ✅ COMPLETE**
+### 🔴 CRITICAL: Issue #2 - Missing FlushViewOfFile
+**Location**: Throughout file, no flush calls present
 
-**Goal:** Validate that data is stored and retrieved correctly, with comprehensive round-trip verification and consistency checks.
+**Problem**: 
+After writing data to the memory-mapped region, there's no `FlushViewOfFile` call to ensure data is persisted to disk. If a process crashes:
+- Recent writes are lost
+- Other processes may read stale data from disk
+- File state becomes inconsistent
 
-**Completed Tests:**
-1. ✅ Round-trip verification - Insert 8 diverse strings, verify exact retrieval
-2. ✅ Walker consistency - 100 walks produce deterministic results
-3. ✅ Cost consistency - Costs strictly decrease on 10 duplicate insertions
-4. ✅ Sibling chain validation - No cycles or dangling pointers detected
-5. ✅ Prefix extension accuracy - Extensions match expected suffixes exactly
-6. ✅ Duplicate handling - 50 duplicates don't bloat structure (≤10 extra blocks)
-7. ✅ Mixed operation consistency - 50 interleaved insert/search operations maintain integrity
-
-**Results:**
-- All 7 data integrity tests passing ✅
-- Round-trip verified with diverse strings (symbols, spaces, numbers, varying lengths)
-- Walker determinism confirmed over 100 iterations
-- Cost ordering maintained under duplicate insertions
-- Sibling chains validated without cycles or invalid pointers
-- Prefix extensions computed accurately
-- Structure remains efficient under duplicates
-- Mixed operations maintain searchability of all previous insertions
-
-**Technical Notes:**
-- Tests verify both exact matches (no extension) and partial matches (with extensions)
-- Duplicate insertions verified to not significantly grow block count
-- All tests validate structure integrity via `validate_trie_structure()`
-- Sibling chain traversal uses visited set to detect cycles
-
-**Build Status:**
-- Full test suite: 29/29 tests passing ✅
-- All Phase 0 + Phase 1 + Phase 2 tests passing
-
-**Ready for:** Phase 3 - Edge cases and boundary conditions
+**Impact**: HIGH - Data loss on crashes
 
 ---
 
-### **Phase 3: Edge Cases & Boundary Conditions ✅ COMPLETE**
+### 🟠 HIGH: Issue #3 - Alignment Not Guaranteed
+**Location**: `open_map()` line 313
 
-**Goal:** Test boundary conditions, special characters, and edge cases that might reveal off-by-one errors or special handling issues.
+**Problem**:
+```zig
+// @Reliability switch to MapViewOfFile3 to guarentee alignment
+const map_view = windows.MapViewOfFile(...)
+```
 
-**Completed Tests:**
-1. ✅ Empty string operations - Empty string insertion documented (returns false on search)
-2. ✅ Maximum string length - TallStringLen boundary (21, 22, 23 chars) all work correctly
-3. ✅ Node capacity boundaries - WideNodeLen (4→5) triggers spillover correctly
-4. ✅ Special characters - Unicode (café, 🎉), spaces, quotes, tabs, symbols all handled
-5. ✅ Identical prefix stress - 50 strings with 37-char common prefix handled correctly
-6. ✅ Single character differences - 9 strings differing by 1 char at various positions
-7. ✅ Case sensitivity - Trie is case-sensitive (lowercase ≠ UPPERCASE)
+Current code uses `@alignCast` which is a runtime assertion. If Windows returns an unaligned pointer:
+- Runtime crash with assertion failure
+- Or worse, undefined behavior if assertions are disabled
+- Misaligned access to trie blocks
 
-**Results:**
-- All 7 edge case tests passing ✅
-- Empty string behavior documented (not found after insertion)
-- Boundary conditions at TallStringLen (22) handled correctly
-- Node capacity overflow (WideNodeLen=4) triggers proper sibling allocation
-- Special characters including unicode and emojis stored/retrieved correctly
-- Long common prefixes create deep structures without corruption
-- Case sensitivity confirmed (different cases treated as different strings)
-
-**Technical Notes:**
-- TallStringLen = 22, strings at 21/22/23 chars all work
-- WideNodeLen = 4, tested exact capacity (4) and overflow (5)
-- Special chars tested: spaces, unicode (café), emoji (🎉), symbols, tabs
-- Identical prefix test uses 37-char common prefix with 50 variations
-- Case test verifies 'lowercase' ≠ 'UPPERCASE'
-
-**Build Status:**
-- Full test suite: 36/36 tests passing ✅
-- All Phase 0-3 tests passing
-
-**Ready for:** Phase 4 - Additional validation helpers and stress combinations
+**Impact**: MEDIUM-HIGH - Can cause crashes or silent corruption
 
 ---
 
-## Proposed Test Categories (Future Phases)
+### 🟠 HIGH: Issue #4 - Inconsistent Volatile Usage
+**Location**: Multiple locations - lines 225, 364, etc.
 
-### **1. Single-Process Stress Tests ✅ COMPLETE**
-See Phase 1 above for detailed status.
+**Problem**:
+```zig
+map: []u8,  // Not volatile
+trie_blocks.map = @volatileCast(...)  // Removing volatile
+```
 
-### **Phase 4: Multi-Process Concurrency Tests 🚧 IN PROGRESS**
+Memory is marked volatile at creation but immediately cast to non-volatile. Concurrent access from multiple processes requires volatile semantics to prevent compiler optimizations from caching values.
 
-**Goal:** Test the trie under multi-process access patterns to detect race conditions, synchronization bugs, and corruption from concurrent operations.
-
-**Architecture Overview:**
-The trie uses cross-process synchronization via:
-- Named semaphore (`Local\\fcmd_data_semaphore`) - coordinates exclusive file access
-- Named events (`fcmd_unload_data`, `fcmd_reload_data`) - signals background unload/reload
-- Memory-mapped file (`trie.frog`) - shared state across processes
-- Background thread per process - handles dynamic unload/reload on resize
-
-**Test Framework Design:**
-
-1. **Test State Files:**
-   - Serialize trie state to a standalone `.frog` file
-   - Each test creates a clean state file with known data
-   - Processes load from this file instead of global state
-   - Format: same as runtime (magic number, version, size, trie blocks)
-
-2. **Process Controller:**
-   - Spawn multiple fcmd.exe processes with special test mode
-   - Each process runs a specific operation sequence
-   - Operations: INSERT, SEARCH, WALK, RESIZE_TRIGGER
-   - Synchronization barriers between phases
-   - Collect results from each process (success/failure, data found, errors)
-
-3. **Test Operations:**
-   - `test_insert <state_file> <string>` - Insert and verify
-   - `test_search <state_file> <string>` - Search and report result
-   - `test_walk <state_file> <prefix>` - Walk and collect extensions
-   - `test_stress <state_file> <count>` - Rapid insertions
-   - `test_verify <state_file> <expected_strings_file>` - Bulk verification
-
-4. **Validation Strategy:**
-   - Before: Create known-good state file
-   - During: Parallel process operations with timing control
-   - After: All processes verify complete data set is intact
-   - Check: No corruption (structure valid, all strings findable)
-
-**Detailed Test Plan:**
-
-**Test 1: Simultaneous Readers**
-- Setup: State file with 100 pre-inserted strings
-- Spawn: 5 reader processes searching for different strings
-- Expected: All searches succeed, no corruption
-
-**Test 2: Concurrent Readers + 1 Writer**
-- Setup: State file with 50 strings
-- Spawn: 4 readers continuously searching, 1 writer inserting new strings
-- Expected: Readers find their strings, writer succeeds, final state contains all
-
-**Test 3: Multiple Writers (Semaphore Stress)**
-- Setup: Empty state file
-- Spawn: 3 writers each inserting 20 unique strings
-- Expected: All 60 strings present in final state, no duplicates lost
-
-**Test 4: Resize During Read**
-- Setup: State file near capacity (large backing array mostly full)
-- Spawn: 2 readers actively walking, 1 writer triggering resize by filling remaining space
-- Expected: Background unloader handles resize, readers recover, all data intact
-
-**Test 5: Background Unloader Rapid Cycling**
-- Setup: State file with 50 strings
-- Spawn: 10 processes rapidly inserting (forcing multiple resizes)
-- Expected: All processes handle unload/reload events correctly, no data loss
-
-**Test 6: Zombie Process Simulation**
-- Setup: State file with known data
-- Spawn: Process that acquires semaphore, then forcibly killed
-- Recovery: Timeout mechanism or manual semaphore reset
-- Expected: Other processes can eventually continue (may require retry logic)
-
-**Test 7: Race on Sibling Allocation**
-- Setup: State file with root node at capacity (4 wide nodes)
-- Spawn: 2 writers simultaneously inserting strings that require sibling allocation
-- Expected: Proper synchronization prevents double allocation
-
-**Implementation Steps:**
-
-1. ✅ **Update plan.md** - Document Phase 4 architecture (this section)
-
-2. ✅ **Create Test Harness Module** (`src/test_multiprocess.zig`):
-   - ✅ State file creation/loading utilities (TestStateFile)
-   - ✅ Test operation execution functions
-   - ✅ Validation helpers for multi-process context (verifyStringsInStateFile)
-   - ✅ ProcessController structure (spawn/waitAll/allSucceeded)
-
-3. ✅ **Add CLI Test Mode** (extend `src/main.zig`):
-   - ✅ `fcmd --test-mp <operation> <state_file> [args...]`
-   - ✅ Operations: insert, search, verify
-   - ✅ Exit with status code (0 = success, 1 = failure)
-
-4. ✅ **Build Initial Infrastructure Tests** (in `src/test_exports.zig`):
-   - ✅ Test state file creation and population
-   - ✅ Verify state file reading
-   - ✅ CLI test mode infrastructure validation
-
-5. 🚧 **Implement Process Spawning** (next step):
-   - Use ProcessController to spawn multiple fcmd.exe instances
-   - Coordinate timing with barriers/delays
-   - Collect and verify exit codes
-   - Test concurrent readers scenario
-
-6. ⏳ **Implement Full Test Cases** (pending):
-   - Simultaneous readers test
-   - Concurrent readers + writer test
-   - Multiple writers (semaphore stress) test
-   - Resize during read test
-   - Background unloader rapid cycling test
-
-**Current Status:** Infrastructure complete, ready for process spawning implementation.
+**Impact**: MEDIUM-HIGH - Stale reads, torn writes
 
 ---
 
-### **Phase 4.5: Actual Multi-Process Tests ✅ COMPLETE**
+### 🟠 HIGH: Issue #5 - Missing Memory Barriers
+**Location**: All volatile pointer operations
 
-**Goal:** Implement the actual multi-process concurrency tests using the infrastructure built in Phase 4.
+**Problem**:
+Using `volatile` pointers without memory barriers/fences. On modern multi-core systems, `volatile` alone doesn't guarantee memory ordering between processors.
 
-**Prerequisites:**
-- ✅ Test state file serialization (Phase 4)
-- ✅ CLI test mode with --test-mp (Phase 4)
-- ✅ Process controller structure (Phase 4)
-- ✅ Process spawning implementation
-
-**Completed Tests:**
-
-**Test 1: Simultaneous Readers ✅**
-- Creates state file with 100 pre-inserted strings
-- Spawns 5 `fcmd --test-mp search` processes, each searching for different strings
-- Verifies all processes exit with code 0 (found)
-- Verifies state file unchanged after concurrent reads
-- **Result:** All 5 reader processes succeeded, state file intact ✓
-
-**Test 2: Concurrent Readers + 1 Writer ✅**
-- State file with 50 initial strings
-- Spawns 4 reader processes searching for existing strings
-- Spawns 10 writer operations inserting new strings
-- Verifies all 60 strings present at end (50 original + 10 new)
-- Verifies all readers succeeded
-- **Result:** Readers + writer test passed, all 60 strings present ✓
-
-**Test 3: Multiple Writers (Semaphore Stress) ✅**
-- Empty state file
-- Spawns 60 writer processes (3 writers × 20 strings each)
-- Tests semaphore coordination under concurrent write load
-- Verifies all 60 strings present in final state (no lost writes)
-- Verifies no duplicate blocks or corruption
-- **Result:** Multiple writers test passed, all 60 strings present ✓
-
-**Implementation Summary:**
-- All tests use `ProcessController` to spawn multiple fcmd.exe instances
-- Each process runs with `--test-mp <operation> <state_file> <args>`
-- Exit codes communicate success/failure (0 = success)
-- Final verification ensures data integrity after concurrent operations
-- Tests clean up temporary state files on completion
-
-**Technical Notes:**
-- Process spawning uses `std.process.Child.spawn()`
-- No artificial delays needed - natural process startup provides timing variation
-- Semaphore coordination (in data.zig) handles concurrent access correctly
-- All operations verified via `verifyStringsInStateFile()` helper
-
-**Test Results:** 3/3 tests passing ✅
-**Total Test Count:** 41/41 tests passing (including all phases)
-
-**Deferred to Future Phases:**
-- Resize during concurrent read (requires triggering resize at specific capacity)
-- Rapid insert stress with >60 processes (resource limits)
-- Zombie process simulation (requires process killing)
-- Cross-machine testing (network file systems)
+**Impact**: MEDIUM-HIGH - Cross-process visibility issues
 
 ---
 
-### **Phase 5: Advanced Multi-Process Scenarios ✅ COMPLETE**
+### 🟡 MEDIUM: Issue #6 - Non-Atomic Boolean Flag
+**Location**: `hack_we_are_the_process_requesting_an_unload` line 492
 
-**Goal:** Test more complex multi-process patterns that stress the trie's synchronization and structural integrity under heavy concurrent load.
+**Problem**:
+```zig
+hack_we_are_the_process_requesting_an_unload: bool = false,
+```
 
-**Prerequisites:**
-- ✅ All Phase 4.5 tests passing
-- ✅ ProcessController infrastructure working reliably
-- ✅ CLI test mode handling all operations correctly
+Regular boolean used for cross-thread communication without atomic operations or locks. Multiple threads in the same process could see torn reads/writes.
 
-**Completed Tests:**
-
-**Test 1: Rapid Insert Stress ✅**
-- State file with 10 initial strings
-- Spawns 250 concurrent insert operations (5 processes × 50 inserts each)
-- Tests semaphore handling under heavy write load
-- Verifies all 260 strings present (10 initial + 250 inserted)
-- **Result:** All 260 strings verified, no data loss under rapid concurrent writes ✓
-
-**Test 2: Search During Concurrent Inserts ✅**
-- State file with 100 original strings
-- Spawns 3 reader processes searching for original strings
-- Spawns 60 writer operations inserting new strings (3 writers × 20 each)
-- Tests read/write interleaving and data consistency
-- Verifies all 160 strings present (100 original + 60 new)
-- Verifies all reader searches succeeded
-- **Result:** All readers succeeded, all 160 strings present ✓
-
-**Test 3: Shared Prefix Stress (Concurrent Tall→Wide Promotions) ✅**
-- Empty state file
-- Spawns 60 concurrent inserts with common prefix "SHARED_PREFIX_TESTING_"
-- Tests structural promotions (tall→wide) under concurrent access
-- Verifies trie promotion logic handles concurrent modifications correctly
-- All strings have 22-character common prefix, forcing deep tree structure
-- **Result:** All 60 strings with shared prefix present, no corruption during promotions ✓
-
-**Implementation Summary:**
-- Rapid stress test validates semaphore performance under 250 concurrent operations
-- Search during inserts proves readers can operate safely during concurrent writes
-- Shared prefix test stresses the tall→wide promotion code path concurrently
-- All tests verify complete data integrity after concurrent operations
-
-**Technical Notes:**
-- Rapid stress spawns processes quickly to maximize concurrency overlap
-- No artificial delays - natural OS scheduling provides realistic concurrency
-- Shared prefix test uses 22-char prefix (same as TallStringLen) to force promotions
-- All operations go through semaphore coordination in data.zig
-
-**Test Results:** 3/3 tests passing ✅
-**Total Test Count:** 44/44 tests passing (all phases)
-
-**Performance Observations:**
-- 250 concurrent inserts complete successfully with no lost writes
-- Semaphore coordination scales well under heavy concurrent load
-- Tall→wide promotions handle concurrent access without corruption
-- Read operations proceed safely during concurrent writes
-
-**Deferred:**
-- Resize during concurrent access (requires precise capacity control)
-- >250 concurrent operations (OS resource limits)
-- Long-running concurrent operations with process lifecycle events
+**Impact**: MEDIUM - Race condition in unload logic
 
 ---
 
-### **Phase 5 Extensions: Score/Cost Validation ✅ COMPLETE**
+### 🟡 MEDIUM: Issue #7 - Stale Pointer Risk After Remap
+**Location**: `open_map()` lines 294-303
 
-**Goal:** Verify that the trie's priority scoring system works correctly under concurrent access, ensuring frequently-used commands are properly prioritized.
+**Problem**:
+When remapping, the base address can change. Any pointers held outside the function become invalid. The code updates internal pointers but external references (e.g., in the middle of trie operations) could become dangling.
 
-**Score System Design:**
-- Each command starts with `BaseCost = 65535` on first insertion
-- Each subsequent use (duplicate insert) decreases cost by 1: `cost -= 1`
-- **Lower cost = Higher priority** (more frequently used)
-- Costs are sorted in ascending order within each trie node
-- Semaphore must protect cost updates during concurrent access
-
-**Completed Tests:**
-
-**Test 4: Score Updates - Duplicate Inserts ✅**
-- Creates state file with single command: "git status"
-- Verifies initial cost is `BaseCost = 65535`
-- Spawns 10 duplicate insert operations
-- Verifies final cost decreased to `65525` (65535 - 10)
-- **Result:** Cost correctly decreases by 1 per use ✓
-
-**Test 5: Concurrent Score Updates - Multiple Commands ✅**
-- Creates state file with 5 commands: git status, git commit, git push, npm install, cargo build
-- Simulates realistic usage patterns with varying frequencies:
-  - "git status" - 20 uses → cost 65515 (highest priority)
-  - "git commit" - 10 uses → cost 65525
-  - "git push" - 5 uses → cost 65530
-  - "npm install" - 2 uses → cost 65533
-  - "cargo build" - 1 use → cost 65534 (lowest priority)
-- Verifies all costs updated correctly: `expected_cost = 65535 - usage_count`
-- Verifies proper ordering: most-used has lowest cost
-- **Result:** All 5 commands have correct costs and proper priority ordering ✓
-
-**Implementation Details:**
-- Added `getStringCost()` helper in test_multiprocess.zig
-- Returns the cost value for a specific string in a state file
-- Walks the trie to find the string and retrieves its `walker.cost`
-- Returns `null` if string not found
-
-**Validation Approach:**
-1. Record initial costs before concurrent operations
-2. Spawn concurrent insert operations with varying frequencies
-3. Read final costs from state file
-4. Assert: `final_cost = initial_cost - number_of_uses`
-5. Assert: More frequently used commands have lower costs
-
-**Technical Notes:**
-- Cost updates protected by semaphore during concurrent inserts
-- Each process modifying the same command decreases its cost independently
-- Final cost reflects total number of uses across all processes
-- Sorting ensures commands appear in priority order based on cost
-
-**Test Results:** 2/2 score validation tests passing ✅
-**Total Phase 5 Tests:** 5/5 passing ✅
-**Total Test Count:** 46/46 tests passing (all phases)
-
-**Key Findings:**
-- Score system works correctly under concurrent access
-- Multiple processes can update costs for the same command without corruption
-- Cost ordering correctly reflects usage frequency
-- Semaphore coordination protects cost updates during concurrent writes
-- Priority system validated for real-world usage patterns (git commands, npm, cargo)
+**Impact**: MEDIUM - Use-after-free potential
 
 ---
 
-### **Phase 6: File System Integration Tests ✅ COMPLETE**
+### 🟡 MEDIUM: Issue #8 - TOCTOU in Semaphore Check
+**Location**: `ensure_other_processes_have_released_handle()` lines 507-520
 
-**Goal:** Validate file system operations, persistence, and corruption detection mechanisms to ensure data survives cold starts and gracefully handles corrupted files.
+**Problem**:
+```zig
+if (prev_count == 0) {
+    break;
+} else {
+    windows.Sleep(1);
+}
+```
 
-**Prerequisites:**
-- ✅ TestStateFile infrastructure from Phase 4
-- ✅ File serialization/deserialization working correctly
-- ✅ Magic number and version validation in data.zig
+Time-of-check-time-of-use race: between checking `prev_count` and breaking, another process could acquire the semaphore.
 
-**Completed Tests:**
-
-**Test 1: Cold Start - Load from Existing File ✅**
-- Creates state file with 5 known commands: git status, git commit -m, npm install, cargo build, docker ps
-- Verifies initial population worked (all strings findable)
-- Simulates cold start by closing and reopening the state file
-- Verifies all strings still present after reopen
-- **Result:** All 5 strings survived reopen, data persists correctly ✓
-
-**Test 2: Corrupt Magic Number Detection ✅**
-- Creates valid state file with test data
-- Manually corrupts magic number from "frog" to "bad!"
-- Attempts to reopen the corrupted file
-- Verifies open operation fails with `error.InvalidMagicNumber`
-- **Result:** Corruption correctly detected, graceful error handling ✓
-
-**Test 3: Corrupt Version Detection ✅**
-- Creates valid state file (current version = 3)
-- Manually corrupts version byte to invalid value (99)
-- Attempts to reopen the corrupted file
-- Verifies open operation fails with `error.InvalidVersion`
-- **Result:** Version mismatch correctly detected, prevents incompatible reads ✓
-
-**Test 4: File Size Validation ✅**
-- Creates state file with known capacity (100 blocks)
-- Calculates expected size: header(16) + len(8) + blocks(100 × TrieBlock size)
-- Verifies actual file size matches expected size
-- Verifies stored size_in_bytes in header matches expected size
-- **Result:** File size validation passed - expected=3224, actual=3224, stored=3224 ✓
-
-**Implementation Summary:**
-- Added `verifyStringInStateFile()` helper function in test_multiprocess.zig
-- Tests use `TestStateFile.create()` and `TestStateFile.open()` infrastructure
-- Manual file corruption via `pwriteAll()` at specific offsets
-- Graceful error handling verified through expected error returns
-
-**Technical Notes:**
-- Magic number stored at offset 0 (4 bytes): "frog"
-- Version byte stored at offset 4 (1 byte): current = 3
-- size_in_bytes stored at offset 8 (4 bytes, i32)
-- Trie block count (len) stored at offset 16 (8 bytes, usize)
-- TrieBlock data starts at offset 24
-- File format validated on every open operation
-
-**Test Results:** 4/4 tests passing ✅
-**Total Test Count:** 50/50 tests passing (all phases)
-
-**Key Findings:**
-- Data successfully persists across process restarts (cold start works)
-- Magic number validation prevents reading corrupted/incompatible files
-- Version validation ensures backward/forward compatibility checks
-- File size calculations are correct and consistent
-- TestStateFile infrastructure provides robust file system testing
-
-**Deferred to Future Phases:**
-- Partial write simulation (crash during resize)
-- Memory mapping alignment verification
-- Multi-machine testing on network file systems
-- File recovery mechanisms after corruption
+**Impact**: MEDIUM - Could allow overlapping exclusive operations
 
 ---
 
-### **Phase 7: Fuzzing and Chaos Engineering ✅ COMPLETE**
+### 🟢 LOW: Issue #9 - Missing Error Handling
+**Location**: Lines 249, 538
 
-**Goal:** Use randomized testing and adversarial inputs to discover edge cases and validate that the trie maintains invariants under chaotic operation sequences.
+**Problem**:
+`UnmapViewOfFile` return values not checked. Failed unmapping could lead to resource leaks or incorrect state.
 
-**Prerequisites:**
-- ✅ All validation helpers from Phase 0 (validate_trie_structure, validate_can_find)
-- ✅ Comprehensive test coverage from Phases 0-6
-- ✅ Understanding of trie invariants and corruption patterns
-
-**Completed Tests:**
-
-**Test 1: Random Operation Fuzzing - 1000 Operations ✅**
-- Uses seeded PRNG (seed: 0x12345678) for reproducibility
-- Generates 1000 random operations: Insert (random strings 1-40 chars), Search, Walk
-- String generation weighted: 60% lowercase, 20% uppercase, 10% digits, 10% special chars
-- Validates structure integrity every 100 operations
-- Verifies all inserted strings remain findable at end
-- **Result:** 1000 operations, 294 unique strings, 526 blocks allocated ✓
-
-**Test 2: Property-Based Invariants - Structural Consistency ✅**
-- Uses seeded PRNG (seed: 0xABCDEF99) for reproducibility
-- Tests that key invariants hold after any sequence of 500 insert operations
-- Invariants tested:
-  - Structure validity (no cycles, valid pointers, bounds checks)
-  - All previously inserted strings remain findable
-  - Block count never exceeds backing array capacity
-- Validates invariants continuously during operation
-- **Result:** All invariants held for 500 operations ✓
-
-**Test 3: Adversarial Stress Patterns ✅**
-- Pattern 1: 50 strings with identical 27-char prefix (stresses tall→wide promotions)
-- Pattern 2: 50 alternating short ("s0") and long strings (stresses mixed node types)
-- Pattern 3: 26 strings differing only in last character (stresses deep trees)
-- Pattern 4: 30 incrementally extending strings ("a", "ab", "abc"... stresses parent-child)
-- Each pattern validated independently for structure integrity
-- **Result:** 191 blocks after all stress patterns, no corruption ✓
-
-**Test 4: Deterministic Replay with Seed ✅**
-- Critical for debugging: same seed produces identical behavior
-- Runs 200 random insertions with seed 0xDEADBEEF twice
-- Verifies both runs produce:
-  - Identical block counts
-  - Identical string counts
-  - Identical strings in identical order
-- **Result:** Seed 0xDEADBEEF produced identical results across runs ✓
-
-**Implementation Summary:**
-- Added `FuzzOp` enum for operation types (Insert, Search, Walk)
-- Created `generateFuzzString()` helper with weighted character distribution
-- All tests use seeded PRNGs for reproducibility
-- Structure validation integrated into fuzzing loops
-- Comprehensive invariant checking after random operations
-
-**Technical Notes:**
-- Random string generation produces realistic command-like strings
-- Character distribution: lowercase (60%), uppercase (20%), digits (10%), special (10%)
-- Special chars limited to common command chars: space, dash, underscore, dot, colon, slash
-- Seeds chosen for diversity: 0x12345678, 0xABCDEF99, 0xDEADBEEF
-- All tests verify structure integrity via `validate_trie_structure()`
-
-**Test Results:** 4/4 tests passing ✅
-**Total Test Count:** 54/54 tests passing (all phases)
-
-**Key Findings:**
-- Trie maintains structural integrity under 1000+ random operations
-- All invariants hold continuously during chaotic operation sequences
-- Adversarial patterns (shared prefixes, incrementing strings) handled correctly
-- Deterministic replay works perfectly - critical for debugging fuzz failures
-- No crashes, memory corruption, or data loss under fuzzing
-
-**Fuzzing Coverage:**
-- Random insertion patterns ✓
-- Mixed operation sequences (insert/search/walk) ✓
-- Adversarial prefix patterns ✓
-- Incremental string extension ✓
-- Deep tree structures ✓
-- Wide fan-out structures ✓
-- Deterministic reproducibility ✓
-
-**Deferred to Future Enhancements:**
-- Continuous fuzzing integration (AFL, libFuzzer)
-- Crash reproduction framework
-- Mutation-based fuzzing (modify existing strings)
-- Multi-threaded chaos testing
-- Resource exhaustion scenarios
+**Impact**: LOW - Resource leak, not direct corruption
 
 ---
 
-## Proposed Test Categories (Future Phases)
-- **Round-trip verification:** Insert known data, read back, verify exact match
-- **Walker consistency:** Ensure walk_to() produces deterministic results
-- **Cost consistency:** Verify costs update correctly after insertions
-- **Sibling chain validation:** Walk all siblings, ensure no cycles or null pointers
-- **Alignment checks:** Verify TrieBlock boundaries align correctly after resize
+### 🟢 LOW: Issue #10 - No Mapping Generation Counter
+**Location**: General architecture
 
-### **4. Edge Cases & Boundary Conditions**
-- **Empty trie operations:** Search empty trie, insert into empty
-- **Single character strings:** "a", "b", "c"...
-- **Duplicate insertions:** Same string inserted 1000 times
-- **Special characters:** Strings with unicode, spaces, quotes
-- **Maximum string length:** TallStringLen (22) boundary cases
-- **Node overflow:** Exactly WideNodeLen (4) and TallNodeLen (1) insertions
+**Problem**:
+No mechanism to detect when pointers reference an old mapping vs the current one.
 
-### **5. File System & Mapping Tests**
-- **Cold start:** Load from existing file, verify all data intact
-- **Corruption detection:** Manually corrupt magic number/version, ensure graceful handling
-- **Partial writes:** Simulate crashes during resize
-- **File size validation:** Ensure size_in_bytes_ptr matches actual mapping
-- **Memory mapping alignment:** Verify all structures properly aligned
-
-### **6. Sorting & Ordering Tests**
-- **Cost-based ordering:** Verify bubble sort maintains cost order
-- **Recent preference:** Ensure >= comparison prefers recent insertions
-- **Spillover sorting:** Verify sorting across sibling blocks
-- **Iterator validation:** Walk all children, verify order matches costs
-
-### **7. Memory Safety Tests**
-- **Bounds checking:** Verify no out-of-bounds access in get_child_size()
-- **Null pointer checks:** Ensure metadata.next==0 handled correctly
-- **Volatile access patterns:** Verify volatile reads don't get optimized incorrectly
-- **Use-after-unmap:** Ensure no access after background unload
-
-### **8. Determinism & Reproducibility**
-- **Seed-based fuzzing:** Use fixed seeds to reproduce insertion sequences
-- **Operation logging:** Record all operations for replay on failure
-- **Snapshot comparison:** Save trie state, reload, compare
-- **Hash verification:** Compute hash of trie structure, verify after operations
+**Impact**: LOW - Makes debugging harder
 
 ---
 
-## Test Infrastructure Recommendations
+## Fix Plan - Phased Approach
 
-### 1. Test Harness Features
-- Configurable backing buffer sizes for fast iteration
-- Mock file system for fault injection
-- Operation recording/replay capability
-- Trie validation function (walks entire structure, checks invariants)
-- Hash/checksum computation for state comparison
+### Phase 1: Critical Fixes (Prevent Data Corruption)
+**Priority**: IMMEDIATE
 
-### 2. Validation Functions
-- `validate_trie_structure()` - checks all pointers, no cycles, valid indices
-- `validate_sorting()` - ensures costs are properly ordered
-- `validate_data_integrity()` - round-trip all inserted data
-- `check_alignment()` - verifies memory alignment
-- `validate_no_duplicates_in_block()` - ensures no duplicate strings in same block
-- `validate_sibling_chain()` - walk siblings, check for cycles
+#### Task 1.1: Fix Resize Race Condition
+- [ ] Move size update to AFTER successful remapping
+- [ ] Add proper sequencing: unload → remap → update size → reload
+- [ ] Add validation that new mapping succeeded before updating size
+- [ ] Test with multiple processes performing concurrent resizes
 
-### 3. Fuzzing Strategy
-- Random operation sequences (insert, walk, resize)
-- Random string generation with weighted distributions
-- Controlled chaos: kill processes at random points
-- Property-based testing: invariants that should always hold
+**Files**: `data.zig` - `DumbList.append()`
 
-### 4. Performance Baselines
-- Track insertion time to detect degradation
-- Monitor resize frequency
-- Measure walk_to() latency distributions
-- Memory usage patterns
+#### Task 1.2: Add FlushViewOfFile Calls
+- [ ] Add flush after critical writes (header updates, resize operations)
+- [ ] Add flush before signaling other processes to reload
+- [ ] Consider adding periodic background flush
+- [ ] Add error handling for flush failures
 
----
+**Files**: `data.zig` - `DumbList.append()`, `open_map()`, `background_unloader_loop()`
 
-## Key Invariants to Check
+#### Task 1.3: Implement Proper Alignment
+- [ ] Research and implement `MapViewOfFile3` for guaranteed alignment
+- [ ] Add fallback for older Windows versions
+- [ ] Add alignment validation even with MapViewOfFile3
+- [ ] Update error handling for alignment failures
 
-These should hold true after any sequence of operations:
-
-1. **Structural Integrity:**
-   - All costs are sorted (descending) within each block and across siblings
-   - No dangling pointers (metadata.next either 0 or valid index < blocks.len)
-   - No cycles in sibling chains
-   - All referenced blocks exist in valid range
-
-2. **Data Consistency:**
-   - All string lengths match actual content
-   - is_leaf and node data are mutually exclusive states
-   - exists flag accurately represents slot usage
-   - Size calculations match actual memory layout
-
-3. **Functional Correctness:**
-   - After any operation sequence, all inserted strings should be findable
-   - Walk operations are deterministic (same input → same output)
-   - Cost updates happen correctly on duplicate insertions
-   - Extension strings match remaining suffix after walk
-
-4. **Memory Safety:**
-   - No out-of-bounds array access
-   - Proper alignment of all structures
-   - Volatile pointer access doesn't cause UB
-   - No use-after-free scenarios
+**Files**: `data.zig` - `init_internal()`, `open_map()`
 
 ---
 
-## Common Corruption Patterns to Watch For
+### Phase 2: Synchronization Fixes (Prevent Races)
+**Priority**: HIGH
 
-Based on the memory-mapped multi-process design:
+#### Task 2.1: Fix Volatile Semantics
+- [ ] Decide: make entire map volatile OR use atomic operations for shared fields
+- [ ] If volatile: remove @volatileCast, make all access through volatile pointers
+- [ ] If atomic: convert size_in_bytes_ptr and trie_blocks.len to atomic types
+- [ ] Document the chosen memory model
 
-1. **Race Conditions:**
-   - Multiple processes modifying during resize
-   - Background unloader interrupting operation
-   - Semaphore count mismatches
+**Files**: `data.zig` - `BackingData`, `DumbList`
 
-2. **Pointer Corruption:**
-   - Stale pointers after resize
-   - Invalid next indices
-   - Sibling chain cycles
+#### Task 2.2: Add Memory Barriers
+- [ ] Add memory fences after writes before signaling other processes
+- [ ] Add memory fences after waits before reading shared data
+- [ ] Research Zig's atomic fence API
+- [ ] Add comments explaining barrier placement
 
-3. **Data Corruption:**
-   - Partial writes during crashes
-   - Cost values getting out of sync
-   - String data getting truncated or overwritten
+**Files**: `data.zig` - `ensure_other_processes_have_released_handle()`, `signal_other_processes_can_reaquire_handle()`, `background_unloader_loop()`
 
-4. **Alignment Issues:**
-   - Misaligned TrieBlock after resize
-   - Packed struct padding problems
-   - Volatile cast alignment problems
+#### Task 2.3: Fix Boolean Flag
+- [ ] Replace `hack_we_are_the_process_requesting_an_unload` with atomic bool
+- [ ] Use atomic load/store operations
+- [ ] Add proper synchronization around flag access
+
+**Files**: `data.zig` - `MMapContext`, related functions
 
 ---
 
-## Next Steps
+### Phase 3: Robustness Improvements (Prevent Edge Cases)
+**Priority**: MEDIUM
 
-1. ✅ **Phase 0:** Implement basic test infrastructure (11 tests) - COMPLETE
-2. ✅ **Phase 1:** Single-process stress tests (6 tests) - COMPLETE
-3. ✅ **Phase 2:** Data integrity validation (7 tests) - COMPLETE
-4. ✅ **Phase 3:** Edge cases and boundary conditions (7 tests) - COMPLETE
-5. ✅ **Phase 4:** Multi-process infrastructure (3 tests) - COMPLETE
-6. ✅ **Phase 4.5:** Multi-process concurrency tests (3 tests) - COMPLETE
-7. ✅ **Phase 5:** Advanced multi-process scenarios (5 tests) - COMPLETE
-8. ✅ **Phase 6:** File system integration tests (4 tests) - COMPLETE
-9. ✅ **Phase 7:** Fuzzing and chaos engineering (4 tests) - COMPLETE
+#### Task 3.1: Improve Semaphore Logic
+- [ ] Add retry limit to prevent infinite loops
+- [ ] Consider using WaitForMultipleObjects with timeout
+- [ ] Add deadlock detection
+- [ ] Improve logging around semaphore operations
 
-**Current Status:** 54/54 tests passing ✅
+**Files**: `data.zig` - `ensure_other_processes_have_released_handle()`
 
-**Phase 7 Achievement:** Successfully validated trie robustness through comprehensive fuzzing:
-- Random operation fuzzing (1000 operations with 294 unique strings)
-- Property-based invariant testing (500 operations, all invariants held)
-- Adversarial stress patterns (shared prefixes, incremental strings, deep trees)
-- Deterministic replay validation (seed-based reproducibility confirmed)
+#### Task 3.2: Add Error Handling
+- [ ] Check UnmapViewOfFile return values
+- [ ] Handle partial failure scenarios (e.g., unmap succeeds but remap fails)
+- [ ] Add recovery mechanisms for failures
+- [ ] Improve error messages with more context
 
-All tests demonstrate robust handling of chaotic operation sequences, complete structural integrity under random inputs, and perfect deterministic reproducibility for debugging.
+**Files**: `data.zig` - all unmap/remap locations
 
+#### Task 3.3: Stale Pointer Detection
+- [ ] Add generation counter to mapping
+- [ ] Include generation in DumbList and other structures
+- [ ] Validate generation before dereferencing
+- [ ] Add debug assertions for generation mismatches
+
+**Files**: `data.zig` - `BackingData`, `DumbList`
+
+---
+
+### Phase 4: Testing & Validation
+**Priority**: ONGOING
+
+#### Task 4.1: Stress Testing
+- [ ] Create multi-process stress test that triggers resizes
+- [ ] Run with ThreadSanitizer/AddressSanitizer equivalents
+- [ ] Add chaos testing (random delays, crashes)
+- [ ] Test on different Windows versions
+
+**Files**: New test files in `src/`
+
+#### Task 4.2: Add Assertions & Validation
+- [ ] Add magic number checks before every operation
+- [ ] Validate size is within reasonable bounds
+- [ ] Add checksum/hash verification (optional)
+- [ ] Enable debug logging for corruption investigations
+
+**Files**: `data.zig`, test files
+
+#### Task 4.3: Improve Observability
+- [ ] Add detailed logging of all remap operations
+- [ ] Log semaphore/event state transitions
+- [ ] Add process ID to all log messages
+- [ ] Create visualization tool for debugging multi-process scenarios
+
+**Files**: `data.zig`, `log.zig`
+
+---
+
+## Implementation Order
+
+### Week 1: Critical Fixes
+1. Day 1-2: Fix resize race condition (Issue #1)
+2. Day 3: Add FlushViewOfFile (Issue #2)
+3. Day 4-5: Implement MapViewOfFile3 alignment (Issue #3)
+4. Test and validate critical fixes
+
+### Week 2: Synchronization
+1. Day 1-2: Fix volatile semantics (Issue #4)
+2. Day 3: Add memory barriers (Issue #5)
+3. Day 4: Fix atomic boolean flag (Issue #6)
+4. Day 5: Test synchronization fixes
+
+### Week 3: Robustness & Testing
+1. Day 1: Improve semaphore logic (Issue #8)
+2. Day 2: Add error handling (Issue #9)
+3. Day 3-4: Create comprehensive test suite
+4. Day 5: Add observability improvements
+
+---
+
+## Testing Strategy
+
+### Test Cases to Add:
+1. **Concurrent resize test**: Multiple processes append simultaneously
+2. **Crash recovery test**: Kill process mid-resize, verify other processes recover
+3. **Alignment test**: Verify all pointers are properly aligned
+4. **Stale read test**: Verify processes see consistent data after remaps
+5. **Semaphore deadlock test**: Ensure no deadlocks under contention
+6. **Memory barrier test**: Use tools to detect missing barriers
+7. **Long-running stability test**: Run for hours/days with random operations
+
+### Success Criteria:
+- [ ] No crashes in 24-hour stress test
+- [ ] No data corruption detected in validation checks
+- [ ] All test cases pass consistently
+- [ ] No deadlocks or hangs observed
+- [ ] Clean runs with memory sanitizers
+
+---
+
+## Risk Assessment
+
+### Highest Risk Changes:
+1. **Memory barrier implementation** - Easy to get wrong, hard to test
+2. **Resize sequence changes** - Could introduce new races if not careful
+3. **MapViewOfFile3 migration** - Compatibility concerns with older Windows
+
+### Mitigation:
+- Implement changes incrementally with testing at each step
+- Keep extensive logging during migration
+- Have rollback plan (feature flag) for each major change
+- Test on multiple Windows versions
+- Consider beta testing with subset of users
+
+---
+
+## Open Questions
+
+1. **Q**: Should we use `volatile` everywhere or switch to explicit atomics?
+   - **Recommendation**: Use atomics for header fields (size, len), keep bulk data non-volatile
+
+2. **Q**: What's the minimum Windows version to support?
+   - **Impact**: Determines if MapViewOfFile3 can be used unconditionally
+
+3. **Q**: Should we add a file format version bump?
+   - **Recommendation**: Yes, to ensure old/new code don't mix
+
+4. **Q**: Do we need distributed locking beyond semaphores?
+   - **Recommendation**: Current approach OK if we fix the races
+
+5. **Q**: Should we limit maximum file size?
+   - **Recommendation**: Yes, add sanity check to prevent runaway growth
+
+---
+
+## Notes
+
+- Current code has good structure but lacks proper synchronization primitives
+- The "hack" comments indicate awareness of issues but deferred fixes
+- Multi-process shared memory is inherently complex - consider simplifying architecture in future
+- Document all assumptions about memory ordering and visibility
+- Consider using existing libraries (e.g., Boost.Interprocess equivalent) in future refactor
