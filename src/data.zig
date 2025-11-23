@@ -165,27 +165,9 @@ pub const BackingData = struct {
             return error.CannotOpenFile;
         }
 
-        // Get file size to determine mapping size
-        var file_size_union: windows.LARGE_INTEGER = undefined;
-        if (windows.GetFileSizeEx(file_handle.?, &file_size_union) == 0) {
-            const last_error = windows.GetLastError();
-            std.os.windows.CloseHandle(file_handle.?);
-            log.log_debug("GetFileSizeEx failed: Error code {}\n", .{last_error});
-            return error.CannotGetFileSize;
-        }
-
-        const file_size_i64 = file_size_union.QuadPart;
-        const size: usize = if (file_size_i64 > 0) @intCast(file_size_i64) else initial_size;
-
-        // Create mapping name
-        //const map_name = if (is_test) blk: {
-        //    const pid = windows.GetCurrentProcessId();
-        //    const random = std.crypto.random.int(u32);
-        //    break :blk alloc.tmp_for_c_introp_fmt("Local\\fcmd_test_trie_data_{d}_{d}", .{ pid, random });
-        //} else alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
+        const size = initial_size;
 
         const map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
-
         const map_handle = windows.CreateFileMapping(file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
         if (map_handle == null) {
             const last_error = windows.GetLastError();

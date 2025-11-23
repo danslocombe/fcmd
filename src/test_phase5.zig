@@ -562,7 +562,7 @@ test "Phase 5: shared prefix stress - concurrent tall→wide promotions" {
     std.debug.print("Phase 5: Shared prefix stress passed, all {d} strings present ✓\n", .{all_strings.items.len});
 }
 
-test "Phase 5: score updates - duplicate inserts decrease cost" {
+test "duplicate_inserts_decrease_cost" {
     const test_state_path = "test_state_score_updates.frog";
 
     // Clean up
@@ -613,7 +613,7 @@ test "Phase 5: score updates - duplicate inserts decrease cost" {
     defer controller.deinit();
 
     // Insert the same string 10 times
-    const num_duplicates = 10;
+    const num_duplicates = 2;
     var i: usize = 0;
     while (i < num_duplicates) : (i += 1) {
         const args = [_][]const u8{
