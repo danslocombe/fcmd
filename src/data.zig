@@ -50,7 +50,7 @@ pub const BackingData = struct {
     map: []u8,
 
     trie_blocks: DumbList(lego_trie.TrieBlock),
-    size_in_bytes_ptr: *volatile i32,
+    size_in_bytes_ptr: *std.atomic.Value(i32),
 
     pub fn init(state_dir: []const u8, context: *MMapContext) void {
         std.fs.makeDirAbsolute(state_dir) catch |err| {
@@ -74,7 +74,7 @@ pub const BackingData = struct {
 
         // Open the mapping - will automatically discover size if it's an existing mapping
         open_map(null, context);
-        open_map(@intCast(context.backing_data.size_in_bytes_ptr.*), context);
+        open_map(@intCast(context.backing_data.size_in_bytes_ptr.load(.acquire)), context);
 
         const thread = std.Thread.spawn(.{}, background_unloader_loop, .{context}) catch @panic("Could not start background thread");
         _ = thread;
@@ -165,10 +165,10 @@ pub const BackingData = struct {
 
         const map_magic_number = map[0..4];
         const version = &map[4];
-        const size_in_bytes_ptr: *volatile i32 = @ptrCast(@alignCast(map.ptr + 8));
+        const size_in_bytes_ptr: *std.atomic.Value(i32) = @ptrCast(@alignCast(@volatileCast(map.ptr + 8)));
 
         var trie_blocks: DumbList(lego_trie.TrieBlock) = undefined;
-        trie_blocks.len = @ptrCast(@alignCast(map.ptr + 16));
+        trie_blocks.len = @ptrCast(@alignCast(@volatileCast(map.ptr + 16)));
         trie_blocks.mmap_context = mmap_context;
         const start = 16 + @sizeOf(usize);
         const trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
@@ -194,10 +194,10 @@ pub const BackingData = struct {
             log.log_debug("No data in the state. Resetting ...\n", .{});
             @memcpy(@volatileCast(map_magic_number), &magic_number);
             version.* = current_version;
-            size_in_bytes_ptr.* = @intCast(size);
+            size_in_bytes_ptr.store(@intCast(size), .release);
         } else if (magic_equal) {
             if (version.* == current_version) {
-                log.log_debug("Successfully read existing state, {} bytes\n", .{size_in_bytes_ptr.*});
+                log.log_debug("Successfully read existing state, {} bytes\n", .{size_in_bytes_ptr.load(.acquire)});
                 log.log_debug("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, trie_blocks.len.* });
             } else {
                 std.os.windows.CloseHandle(map_handle.?);
@@ -277,11 +277,11 @@ pub const BackingData = struct {
 
         const map_magic_number = map[0..4];
         const version = &map[4];
-        mmap_context.backing_data.size_in_bytes_ptr = @ptrCast(@alignCast(map.ptr + 8));
+        mmap_context.backing_data.size_in_bytes_ptr = @ptrCast(@alignCast(@volatileCast(map.ptr + 8)));
 
         mmap_context.backing_data.trie_blocks = undefined;
         mmap_context.backing_data.trie_blocks.mmap_context = mmap_context;
-        mmap_context.backing_data.trie_blocks.len = @ptrCast(@alignCast(map.ptr + 16));
+        mmap_context.backing_data.trie_blocks.len = @ptrCast(@alignCast(@volatileCast(map.ptr + 16)));
         const start = 16 + @sizeOf(usize);
         const trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
         const end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
@@ -306,7 +306,7 @@ pub const BackingData = struct {
             log.log_info("No data in the state. Resetting ...\n", .{});
             @memcpy(map_magic_number, &magic_number);
             version.* = current_version;
-            mmap_context.backing_data.size_in_bytes_ptr.* = @intCast(size);
+            mmap_context.backing_data.size_in_bytes_ptr.store(@intCast(size), .release);
             
             // Flush the header to disk
             if (windows.FlushViewOfFile(mmap_context.backing_data.map_view_pointer, 0) == 0) {
@@ -315,8 +315,8 @@ pub const BackingData = struct {
             }
         } else if (magic_equal) {
             if (version.* == current_version) {
-                log.log_debug("Successfully read existing state, {} bytes\n", .{mmap_context.backing_data.size_in_bytes_ptr.*});
-                log.log_debug("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, mmap_context.backing_data.trie_blocks.len.* });
+                log.log_debug("Successfully read existing state, {} bytes\n", .{mmap_context.backing_data.size_in_bytes_ptr.load(.acquire)});
+                log.log_debug("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, mmap_context.backing_data.trie_blocks.len.load(.acquire) });
             } else {
                 alloc.fmt_panic("Unexpected version '{}' expected {}", .{ version.*, current_version });
             }
@@ -326,7 +326,8 @@ pub const BackingData = struct {
         }
 
         if (new_size) |x| {
-            mmap_context.backing_data.size_in_bytes_ptr.* = @intCast(x);
+            // Store with release semantics to ensure all previous writes are visible
+            mmap_context.backing_data.size_in_bytes_ptr.store(@intCast(x), .release);
             
             // Flush the updated size to disk
             if (windows.FlushViewOfFile(mmap_context.backing_data.map_view_pointer, 0) == 0) {
@@ -404,16 +405,16 @@ pub fn DumbList(comptime T: type) type {
     return struct {
         const Self = @This();
 
-        len: *volatile usize,
+        len: *std.atomic.Value(usize),
 
-        // TODO make me volatile
-        //map: [*]volatile T,
+        // Bulk data doesn't need to be volatile - we use atomics for len and synchronization
         map: []T,
 
         mmap_context: *MMapContext,
 
         pub fn append(self: *Self, x: T) void {
-            if (self.len.* >= self.map.len) {
+            const current_len = self.len.load(.acquire);
+            if (current_len >= self.map.len) {
                 // Resize
                 const new_size = initial_size + self.map.len * 2 * @sizeOf(lego_trie.TrieBlock);
 
@@ -421,6 +422,7 @@ pub fn DumbList(comptime T: type) type {
                 BackingData.open_map(new_size, self.mmap_context);
                 
                 // Flush before signaling other processes
+                // FlushViewOfFile provides memory barrier semantics for cross-process visibility
                 if (windows.FlushViewOfFile(self.mmap_context.backing_data.map_view_pointer, 0) == 0) {
                     const last_error = windows.GetLastError();
                     alloc.fmt_panic("FlushViewOfFile failed: Error {}", .{last_error});
@@ -429,12 +431,15 @@ pub fn DumbList(comptime T: type) type {
                 signal_other_processes_can_reaquire_handle(self.mmap_context);
             }
 
-            self.map[self.len.*] = x;
-            self.len.* += 1;
+            const len_val = self.len.load(.monotonic);
+            self.map[len_val] = x;
+            // Release semantics ensures the write to map[len_val] is visible before len increment
+            self.len.store(len_val + 1, .release);
         }
 
         pub fn at(self: *const Self, i: usize) *T {
-            std.debug.assert(i < self.len.*);
+            // Acquire semantics ensures we see all writes up to the length
+            std.debug.assert(i < self.len.load(.acquire));
             return &self.map[i];
         }
     };

@@ -111,7 +111,7 @@ pub const TrieBlock = struct {
                 // No sibling, need to insert one
                 if (self.metadata.next == 0) {
                     trie.blocks.append(TrieBlock.empty_wide());
-                    const new_node_id: u32 = @intCast(trie.blocks.len.* - 1);
+                    const new_node_id: u32 = @intCast(trie.blocks.len.load(.monotonic) - 1);
                     self.metadata.next = @intCast(new_node_id);
                 }
 
@@ -281,7 +281,7 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
                 }
 
                 trie.blocks.append(TrieBlock.empty_tall());
-                const new_index: u30 = @intCast(trie.blocks.len.* - 1);
+                const new_index: u30 = @intCast(trie.blocks.len.load(.monotonic) - 1);
 
                 var new_block = trie.blocks.at(@intCast(new_index));
                 new_block.node_data.tall.nodes[0].assign_from(self.nodes[i].slice()[WideStringLen..]);
@@ -348,7 +348,7 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
 
                         // Create new block to hold children
                         trie.blocks.append(TrieBlock.empty_tall());
-                        const new_block_id: u30 = @intCast(trie.blocks.len.* - 1);
+                        const new_block_id: u30 = @intCast(trie.blocks.len.load(.monotonic) - 1);
                         const new_block = trie.blocks.at(new_block_id);
                         const new_tall = &new_block.*.node_data.tall;
                         new_tall.*.data[0] = self.data[i];
@@ -396,7 +396,7 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
                 self.nodes[insert_index].assign_from(key[0..StringLen]);
 
                 trie.blocks.append(TrieBlock.empty_tall());
-                const new_node_id: u30 = @intCast(trie.blocks.len.* - 1);
+                const new_node_id: u30 = @intCast(trie.blocks.len.load(.monotonic) - 1);
                 var new_node = trie.blocks.at(new_node_id);
 
                 self.data[insert_index].is_leaf = false;
@@ -580,7 +580,7 @@ pub const Trie = struct {
     }
 
     pub fn init(trie_blocks: *data_lib.DumbList(TrieBlock)) Trie {
-        if (trie_blocks.len.* == 0) {
+        if (trie_blocks.len.load(.acquire) == 0) {
             trie_blocks.append(TrieBlock.empty_tall());
         }
 
