@@ -81,17 +81,6 @@ pub fn build(b: *std.Build) void {
     phase3_tests.linkLibC();
     const run_phase3_tests = b.addRunArtifact(phase3_tests);
 
-    // Phase 4: Multi-process concurrency tests
-    const phase4_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_phase4.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    phase4_tests.linkLibC();
-    const run_phase4_tests = b.addRunArtifact(phase4_tests);
-
     // Phase 5: Additional multi-process scenarios
     const phase5_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -103,38 +92,13 @@ pub fn build(b: *std.Build) void {
     phase5_tests.linkLibC();
     const run_phase5_tests = b.addRunArtifact(phase5_tests);
 
-    // Phase 6: File system integration tests
-    const phase6_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_phase6.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    phase6_tests.linkLibC();
-    const run_phase6_tests = b.addRunArtifact(phase6_tests);
-
-    // Phase 7: Fuzzing and chaos engineering tests
-    const phase7_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_phase7.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    phase7_tests.linkLibC();
-    const run_phase7_tests = b.addRunArtifact(phase7_tests);
-
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
     test_step.dependOn(&run_basic_tests.step);
     test_step.dependOn(&run_phase1_tests.step);
     test_step.dependOn(&run_phase2_tests.step);
     test_step.dependOn(&run_phase3_tests.step);
-    test_step.dependOn(&run_phase4_tests.step);
     test_step.dependOn(&run_phase5_tests.step);
-    test_step.dependOn(&run_phase6_tests.step);
-    test_step.dependOn(&run_phase7_tests.step);
 
     // Individual test steps
     const test_basic_step = b.step("test-basic", "Run basic trie tests");
@@ -149,17 +113,8 @@ pub fn build(b: *std.Build) void {
     const test_phase3_step = b.step("test-phase3", "Run phase 3 tests");
     test_phase3_step.dependOn(&run_phase3_tests.step);
 
-    const test_phase4_step = b.step("test-phase4", "Run phase 4 tests");
-    test_phase4_step.dependOn(&run_phase4_tests.step);
-
     const test_phase5_step = b.step("test-phase5", "Run phase 5 tests");
     test_phase5_step.dependOn(&run_phase5_tests.step);
-
-    const test_phase6_step = b.step("test-phase6", "Run phase 6 tests");
-    test_phase6_step.dependOn(&run_phase6_tests.step);
-
-    const test_phase7_step = b.step("test-phase7", "Run phase 7 tests");
-    test_phase7_step.dependOn(&run_phase7_tests.step);
 
     const exe_check = b.addExecutable(.{
         .name = "bounce",

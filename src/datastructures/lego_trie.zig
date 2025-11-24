@@ -633,7 +633,7 @@ test "insert single" {
     };
 
     var backing: [16]TrieBlock = undefined;
-    var len: usize = 0;
+    var len = std.atomic.Value(usize).init(0);
     var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
@@ -667,7 +667,7 @@ test "insert double" {
     };
 
     var backing: [16]TrieBlock = undefined;
-    var len: usize = 0;
+    var len = std.atomic.Value(usize).init(0);
     var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
@@ -718,7 +718,7 @@ test "insert promoting leaf to node" {
     };
 
     var backing: [1024]TrieBlock = undefined;
-    var len: usize = 0;
+    var len = std.atomic.Value(usize).init(0);
     var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
@@ -750,7 +750,7 @@ test "insert longstring" {
     };
 
     var backing: [16]TrieBlock = undefined;
-    var len: usize = 0;
+    var len = std.atomic.Value(usize).init(0);
     var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
@@ -797,7 +797,7 @@ test "insert splillover" {
     };
 
     var backing: [32]TrieBlock = undefined;
-    var len: usize = 0;
+    var len = std.atomic.Value(usize).init(0);
     var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
@@ -838,7 +838,7 @@ test "iterate spillover" {
     };
 
     var backing: [32]TrieBlock = undefined;
-    var len: usize = 0;
+    var len = std.atomic.Value(usize).init(0);
     var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,
@@ -881,7 +881,7 @@ test "promote tall to wide" {
     };
 
     var backing: [16]TrieBlock = undefined;
-    var len: usize = 0;
+    var len = std.atomic.Value(usize).init(0);
     var test_context = data.MMapContext{};
     var blocks = data.DumbList(TrieBlock){
         .len = &len,

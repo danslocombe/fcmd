@@ -125,7 +125,7 @@ test "Phase 2: sibling chain validation - no cycles or dangles" {
     var count: usize = 0;
     const max_siblings = 100; // Safety limit
 
-    while (current_idx < trie.blocks.len.*) {
+    while (current_idx < trie.blocks.len.load(.monotonic)) {
         const block = trie.blocks.at(current_idx);
 
         // Check for cycles
@@ -145,7 +145,7 @@ test "Phase 2: sibling chain validation - no cycles or dangles" {
         }
 
         // Validate next pointer is in bounds
-        try std.testing.expect(block.metadata.next < trie.blocks.len.*);
+        try std.testing.expect(block.metadata.next < trie.blocks.len.load(.monotonic));
         current_idx = block.metadata.next;
     }
 }

@@ -6,7 +6,7 @@ const data = test_exports.data;
 /// Test context with storage for the trie data
 pub const TestContext = struct {
     mmap_context: data.MMapContext,
-    len: usize,
+    len: std.atomic.Value(usize),
     blocks: data.DumbList(lego_trie.TrieBlock),
 
     /// Initialize and get the trie from this context
@@ -25,7 +25,7 @@ pub fn create_test_context() TestContext {
             .filepath = "",
             .backing_data = undefined,
         },
-        .len = 0,
+        .len = std.atomic.Value(usize).init(0),
         .blocks = data.DumbList(lego_trie.TrieBlock){
             .len = undefined,
             .map = undefined,
@@ -46,7 +46,7 @@ pub fn create_test_trie(backing: []lego_trie.TrieBlock, context: *TestContext) l
 /// Validates the entire trie structure for consistency
 /// Checks: no cycles, valid pointers, proper bounds
 pub fn validate_trie_structure(trie: *lego_trie.Trie) !void {
-    const max_blocks = trie.blocks.len.*;
+    const max_blocks = trie.blocks.len.load(.monotonic);
 
     // Track visited blocks to detect cycles
     var visited = std.AutoHashMap(usize, bool).init(std.testing.allocator);
@@ -88,7 +88,7 @@ pub fn validate_trie_structure(trie: *lego_trie.Trie) !void {
 
 /// Counts total number of allocated blocks
 pub fn count_total_nodes(trie: *lego_trie.Trie) usize {
-    return trie.blocks.len.*;
+    return trie.blocks.len.load(.monotonic);
 }
 
 /// Validates that a string can be found in the trie

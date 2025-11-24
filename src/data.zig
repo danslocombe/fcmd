@@ -307,7 +307,7 @@ pub const BackingData = struct {
             @memcpy(map_magic_number, &magic_number);
             version.* = current_version;
             mmap_context.backing_data.size_in_bytes_ptr.store(@intCast(size), .release);
-            
+
             // Flush the header to disk
             if (windows.FlushViewOfFile(mmap_context.backing_data.map_view_pointer, 0) == 0) {
                 const last_error = windows.GetLastError();
@@ -328,7 +328,7 @@ pub const BackingData = struct {
         if (new_size) |x| {
             // Store with release semantics to ensure all previous writes are visible
             mmap_context.backing_data.size_in_bytes_ptr.store(@intCast(x), .release);
-            
+
             // Flush the updated size to disk
             if (windows.FlushViewOfFile(mmap_context.backing_data.map_view_pointer, 0) == 0) {
                 const last_error = windows.GetLastError();
@@ -420,14 +420,14 @@ pub fn DumbList(comptime T: type) type {
 
                 ensure_other_processes_have_released_handle(self.mmap_context);
                 BackingData.open_map(new_size, self.mmap_context);
-                
+
                 // Flush before signaling other processes
                 // FlushViewOfFile provides memory barrier semantics for cross-process visibility
                 if (windows.FlushViewOfFile(self.mmap_context.backing_data.map_view_pointer, 0) == 0) {
                     const last_error = windows.GetLastError();
                     alloc.fmt_panic("FlushViewOfFile failed: Error {}", .{last_error});
                 }
-                
+
                 signal_other_processes_can_reaquire_handle(self.mmap_context);
             }
 
