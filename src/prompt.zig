@@ -417,3 +417,16 @@ test "move left" {
     try std.testing.expectEqual(@as(usize, 0), prompt.pos.byte_index);
     try std.testing.expectEqual(@as(usize, 0), prompt.pos.x);
 }
+
+test "block move then delete" {
+    var prompt = Prompt.init();
+    prompt.bs.appendSlice(alloc.gpa.allocator(), "git commit -m 'hello there") catch unreachable;
+    prompt.pos.byte_index = prompt.bs.items.len;
+    prompt.pos.x = prompt.pos.byte_index;
+
+    prompt.apply_input(.{ .BlockLeft = .{ .highlight = false } });
+    try std.testing.expectEqual(@as(usize, 20), prompt.pos.byte_index);
+    try std.testing.expectEqual(@as(usize, 20), prompt.pos.x);
+    prompt.apply_input(.{ .DeleteBlock = void{} });
+    try std.testing.expectEqualSlices(u8, "git commit -m 'there", prompt.bs.items);
+}

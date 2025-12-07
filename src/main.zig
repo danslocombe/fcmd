@@ -13,7 +13,7 @@ pub var g_shell: Shell = undefined;
 
 fn printUsage() void {
     const usage =
-        \\Fcmd v0.01
+        \\Fcmd v0.01.1
         \\
         \\Usage:
         \\  fcmd                                    Run interactive shell
@@ -233,7 +233,7 @@ pub fn main() !void {
     }
 
     windows.setup_console();
-    windows.write_console("Fcmd v0.01\n");
+    windows.write_console("Fcmd v0.01.1\n");
 
     const appdata: []const u8 = windows.get_appdata_path();
     const fcmd_appdata_dir = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ appdata, "\\fcmd" }, 0) catch unreachable;
