@@ -4,7 +4,7 @@ const input = @import("input.zig");
 const windows = @import("windows.zig");
 const unicode_width = @import("unicode_width.zig");
 
-pub const block_stop_characters: []const u8 = " /\\";
+pub const block_stop_characters: []const u8 = " /\\'\"";
 
 pub const PromptCursorPos = struct {
     // The byte position into the array of utf8 chars.
@@ -91,7 +91,7 @@ pub const Prompt = struct {
             .BlockLeft => |flags| {
                 var hit_block_stop_char = false;
                 while (self.move_left()) |x| {
-                    const x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
+                    const x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x.slice());
                     if (hit_block_stop_char) {
                         if (x_is_stop_char) {
                             // Continue moving over stop characters.
@@ -119,7 +119,7 @@ pub const Prompt = struct {
             .BlockRight => |flags| {
                 var hit_block_stop_char = false;
                 while (self.move_right()) |x| {
-                    const x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
+                    const x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x.slice());
                     if (hit_block_stop_char) {
                         if (x_is_stop_char) {
                             // Continue moving over stop characters.
@@ -168,7 +168,7 @@ pub const Prompt = struct {
 
                 var hit_block_stop_char = false;
                 while (self.delete()) |x| {
-                    const x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x);
+                    const x_is_stop_char = std.mem.containsAtLeast(u8, block_stop_characters, 1, x.slice());
                     if (hit_block_stop_char) {
                         if (x_is_stop_char) {
                             // Continue chomping stop characters.
@@ -177,9 +177,7 @@ pub const Prompt = struct {
                             // Ok need to stop now
                             // Gone one too far
                             // Push it back on
-                            self.apply_input(input.Input{
-                                .Append = input.Utf8Char.from_slice(x),
-                            });
+                            self.apply_input(input.Input{ .Append = x });
                             break;
                         }
                     } else {
@@ -229,7 +227,7 @@ pub const Prompt = struct {
         }
     }
 
-    pub fn move_left(self: *Prompt) ?[]const u8 {
+    pub fn move_left(self: *Prompt) ?input.Utf8Char {
         // @SPEED
         // How can we avoid re-iterating?
 
@@ -248,7 +246,11 @@ pub const Prompt = struct {
             if (iter.i == self.pos.byte_index) {
                 self.pos.byte_index = prev_i;
                 self.pos.x = prev_x;
-                return prev;
+                if (prev) |c| {
+                    return input.Utf8Char.from_slice(c);
+                }
+
+                return null;
             }
 
             prev_i = iter.i;
@@ -263,7 +265,7 @@ pub const Prompt = struct {
         }
     }
 
-    pub fn move_right(self: *Prompt) ?[]const u8 {
+    pub fn move_right(self: *Prompt) ?input.Utf8Char {
         var iter = std.unicode.Utf8Iterator{
             .bytes = self.bs.items,
             .i = self.pos.byte_index,
@@ -274,9 +276,10 @@ pub const Prompt = struct {
 
         if (ret) |c| {
             self.pos.x += unicode_width.get_width_slice(c);
+            return input.Utf8Char.from_slice(c);
         }
 
-        return ret;
+        return null;
     }
 
     fn update_highlighting_after_move(self: *Prompt, prev_pos: PromptCursorPos, flags: input.CursorMovementFlags) void {
@@ -343,7 +346,7 @@ pub const Prompt = struct {
         self.highlight = null;
     }
 
-    pub fn delete(self: *Prompt) ?[]const u8 {
+    pub fn delete(self: *Prompt) ?input.Utf8Char {
         const prev_byte_index = self.pos.byte_index;
         const ret = self.move_left();
 
@@ -384,18 +387,18 @@ test "move right" {
     var prompt = Prompt.init();
     prompt.bs.appendSlice(alloc.gpa.allocator(), "hi🐸") catch unreachable;
 
-    try std.testing.expectEqualSlices(u8, "h", prompt.move_right().?);
+    try std.testing.expectEqualSlices(u8, "h", prompt.move_right().?.slice());
     try std.testing.expectEqual(@as(usize, 1), prompt.pos.byte_index);
     try std.testing.expectEqual(@as(usize, 1), prompt.pos.x);
-    try std.testing.expectEqualSlices(u8, "i", prompt.move_right().?);
+    try std.testing.expectEqualSlices(u8, "i", prompt.move_right().?.slice());
     try std.testing.expectEqual(@as(usize, 2), prompt.pos.byte_index);
     try std.testing.expectEqual(@as(usize, 2), prompt.pos.x);
-    try std.testing.expectEqualSlices(u8, "🐸", prompt.move_right().?);
+    try std.testing.expectEqualSlices(u8, "🐸", prompt.move_right().?.slice());
     try std.testing.expectEqual(@as(usize, 6), prompt.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 3), prompt.pos.x);
-    try std.testing.expectEqual(@as(?[]const u8, null), prompt.move_right());
+    try std.testing.expectEqual(@as(usize, 4), prompt.pos.x);
+    try std.testing.expectEqual(@as(?input.Utf8Char, null), prompt.move_right());
     try std.testing.expectEqual(@as(usize, 6), prompt.pos.byte_index);
-    try std.testing.expectEqual(@as(usize, 3), prompt.pos.x);
+    try std.testing.expectEqual(@as(usize, 4), prompt.pos.x);
 }
 
 test "move left" {
@@ -404,16 +407,16 @@ test "move left" {
     prompt.pos.byte_index = prompt.bs.items.len;
     prompt.pos.x = 3;
 
-    try std.testing.expectEqualSlices(u8, "🐸", prompt.move_left().?);
+    try std.testing.expectEqualSlices(u8, "🐸", prompt.move_left().?.slice());
     try std.testing.expectEqual(@as(usize, 2), prompt.pos.byte_index);
     try std.testing.expectEqual(@as(usize, 2), prompt.pos.x);
-    try std.testing.expectEqualSlices(u8, "i", prompt.move_left().?);
+    try std.testing.expectEqualSlices(u8, "i", prompt.move_left().?.slice());
     try std.testing.expectEqual(@as(usize, 1), prompt.pos.byte_index);
     try std.testing.expectEqual(@as(usize, 1), prompt.pos.x);
-    try std.testing.expectEqualSlices(u8, "h", prompt.move_left().?);
+    try std.testing.expectEqualSlices(u8, "h", prompt.move_left().?.slice());
     try std.testing.expectEqual(@as(usize, 0), prompt.pos.byte_index);
     try std.testing.expectEqual(@as(usize, 0), prompt.pos.x);
-    try std.testing.expectEqual(@as(?[]const u8, null), prompt.move_left());
+    try std.testing.expectEqual(@as(?input.Utf8Char, null), prompt.move_left());
     try std.testing.expectEqual(@as(usize, 0), prompt.pos.byte_index);
     try std.testing.expectEqual(@as(usize, 0), prompt.pos.x);
 }
@@ -428,5 +431,35 @@ test "block move then delete" {
     try std.testing.expectEqual(@as(usize, 20), prompt.pos.byte_index);
     try std.testing.expectEqual(@as(usize, 20), prompt.pos.x);
     prompt.apply_input(.{ .DeleteBlock = void{} });
-    try std.testing.expectEqualSlices(u8, "git commit -m 'there", prompt.bs.items);
+    try std.testing.expectEqualSlices(u8, "git commit -m there", prompt.bs.items);
+}
+
+test "block delete" {
+    var prompt = Prompt.init();
+    prompt.bs.appendSlice(alloc.gpa.allocator(), "git commit -m 'hello there") catch unreachable;
+    prompt.pos.byte_index = prompt.bs.items.len;
+    prompt.pos.x = prompt.pos.byte_index;
+
+    prompt.apply_input(.{ .DeleteBlock = void{} });
+    try std.testing.expectEqualSlices(u8, "git commit -m 'hello", prompt.bs.items);
+}
+
+test "block delete immediate stop char" {
+    var prompt = Prompt.init();
+    prompt.bs.appendSlice(alloc.gpa.allocator(), "git commit -m 'hello there'") catch unreachable;
+    prompt.pos.byte_index = prompt.bs.items.len;
+    prompt.pos.x = prompt.pos.byte_index;
+
+    prompt.apply_input(.{ .DeleteBlock = void{} });
+    try std.testing.expectEqualSlices(u8, "git commit -m 'hello there", prompt.bs.items);
+}
+
+test "block delete empty" {
+    var prompt = Prompt.init();
+    prompt.bs.appendSlice(alloc.gpa.allocator(), "") catch unreachable;
+    prompt.pos.byte_index = prompt.bs.items.len;
+    prompt.pos.x = prompt.pos.byte_index;
+
+    prompt.apply_input(.{ .DeleteBlock = void{} });
+    try std.testing.expectEqualSlices(u8, "", prompt.bs.items);
 }
