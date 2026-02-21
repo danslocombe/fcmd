@@ -29,21 +29,23 @@ fn printUsage() void {
     std.debug.print("{s}\n", .{usage});
 }
 
-fn resolveAndCreateStatePath(state_path: []const u8) ![]const u8 {
+fn resolveAndCreateStatePath(state_path: []const u8) ![:0]u8 {
     const allocator = alloc.gpa.allocator();
+    const io = alloc.g_io;
+    const cwd = std.Io.Dir.cwd();
 
     // Convert to absolute path
-    const abs_path = std.fs.cwd().realpathAlloc(allocator, state_path) catch |err| {
+    const abs_path = std.Io.Dir.realPathFileAlloc(cwd, io, state_path, allocator) catch |err| {
         // If path doesn't exist, try to create it
         if (err == error.FileNotFound) {
             // Create the directory
-            std.fs.cwd().makePath(state_path) catch |make_err| {
+            std.Io.Dir.createDirPath(cwd, io, state_path) catch |make_err| {
                 std.debug.print("Error creating directory '{s}': {}\n", .{ state_path, make_err });
                 return make_err;
             };
 
             // Try to resolve again after creating
-            return std.fs.cwd().realpathAlloc(allocator, state_path) catch |realpath_err| {
+            return std.Io.Dir.realPathFileAlloc(cwd, io, state_path, allocator) catch |realpath_err| {
                 std.debug.print("Error resolving path '{s}' after creation: {}\n", .{ state_path, realpath_err });
                 return realpath_err;
             };
@@ -56,7 +58,7 @@ fn resolveAndCreateStatePath(state_path: []const u8) ![]const u8 {
     return abs_path;
 }
 
-fn runTestMode(args: []const []const u8) !u8 {
+fn runTestMode(args: []const [:0]const u8) !u8 {
     if (args.len < 3) {
         std.debug.print("Error: --test-mp requires operation and arguments\n", .{});
         printUsage();
@@ -158,7 +160,7 @@ fn runSearchTest(state_path: []const u8, string: []const u8) !u8 {
     }
 }
 
-fn runVerifyTest(state_path: []const u8, strings: []const []const u8) !u8 {
+fn runVerifyTest(state_path: []const u8, strings: []const [:0]const u8) !u8 {
     const allocator = alloc.gpa.allocator();
 
     const abs_path = resolveAndCreateStatePath(state_path) catch {
@@ -215,9 +217,12 @@ fn runGetCostTest(state_path: []const u8, string: []const u8) !u8 {
     return 1;
 }
 
-pub fn main() !void {
-    var args = std.process.argsAlloc(alloc.gpa.allocator()) catch unreachable;
-    defer std.process.argsFree(alloc.gpa.allocator(), args);
+pub fn main(init: std.process.Init) !void {
+    alloc.g_io = init.io;
+
+    var args_arena = std.heap.ArenaAllocator.init(alloc.gpa.allocator());
+    defer args_arena.deinit();
+    const args = try init.minimal.args.toSlice(args_arena.allocator());
 
     // Check for test mode
     if (args.len > 1 and std.mem.eql(u8, args[1], "--test-mp")) {
@@ -229,7 +234,7 @@ pub fn main() !void {
     if (args.len > 1 and std.mem.eql(u8, args[1], "--debug")) {
         std.debug.print("Running in debug mode..\n", .{});
         log.debug_log_enabled = true;
-        state_dir_override = std.fs.cwd().realpathAlloc(alloc.gpa.allocator(), ".") catch unreachable;
+        state_dir_override = std.Io.Dir.realPathFileAlloc(std.Io.Dir.cwd(), alloc.g_io, ".", alloc.gpa.allocator()) catch unreachable;
     }
 
     windows.setup_console();
@@ -249,13 +254,13 @@ pub fn main() !void {
     // Instead of a static buffer we need a resizable list as copy/paste can produce a lot of inputs.
     var buffer = std.ArrayList(input.Input){};
     while (input.read_input(&buffer)) {
-        context.data_mutex.lock();
+        context.data_mutex.lockUncancelable(alloc.g_io);
         for (buffer.items) |in| {
             g_shell.apply_input(in);
         }
 
         g_shell.draw();
-        context.data_mutex.unlock();
+        context.data_mutex.unlock(alloc.g_io);
 
         alloc.clear_temp_alloc();
         buffer.clearRetainingCapacity();

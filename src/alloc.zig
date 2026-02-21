@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 pub var temp_alloc = std.heap.ArenaAllocator.init(gpa.allocator());
+pub var g_io: std.Io = undefined;
 
 pub fn clear_temp_alloc() void {
     _ = temp_alloc.reset(.{

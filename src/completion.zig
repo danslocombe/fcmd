@@ -116,32 +116,20 @@ pub const DirectoryCompleter = struct {
         //std.debug.print("Regenerating DirectoryCompleter at '{s}'...\n", .{rel_dir});
 
         // TODO handle absolute paths
-        const cwd = std.fs.cwd();
-        var dir: std.fs.Dir = undefined;
+        const cwd = std.Io.Dir.cwd();
+        const dir = std.Io.Dir.openDir(cwd, alloc.g_io, rel_dir, .{ .iterate = true }) catch return;
+        defer dir.close(alloc.g_io);
 
-        if (windows.CopyPastedFromStdLibWithAdditionalSafety.openIterableDir(cwd, rel_dir, .{})) |rdir| {
-            dir = rdir;
-        } else |_| {
-            return;
-        }
-
-        defer (dir.close());
         self.files = alloc.new_arraylist(FileInfo);
 
         var iter = dir.iterate();
-        while (iter.next()) |m_file| {
-            if (m_file) |file| {
-                //std.debug.print("Found '{s}'\n", .{file.name});
-                self.files.?.append(alloc.gpa.allocator(), .{
-                    .name = alloc.copy_slice_to_gpa(file.name),
-                    // TODO This overtriggers
-                    .is_dir = file.kind != std.fs.File.Kind.file,
-                }) catch unreachable;
-            } else {
-                break;
-            }
-        } else |_| {
-            return;
+        while (iter.next(alloc.g_io) catch return) |file| {
+            //std.debug.print("Found '{s}'\n", .{file.name});
+            self.files.?.append(alloc.gpa.allocator(), .{
+                .name = alloc.copy_slice_to_gpa(file.name),
+                // TODO This overtriggers
+                .is_dir = file.kind != std.Io.File.Kind.file,
+            }) catch unreachable;
         }
     }
 
@@ -204,8 +192,9 @@ pub const LocalHistoryCompleter = struct {
 
     pub fn add_prefix(self: *LocalHistoryCompleter, s: []const u8) []const u8 {
         if (self.cwd_path == null) {
-            var cwd = std.fs.cwd();
-            self.cwd_path = cwd.realpathAlloc(alloc.gpa.allocator(), "") catch unreachable;
+            const realpath = std.Io.Dir.realPathFileAlloc(std.Io.Dir.cwd(), alloc.g_io, ".", alloc.gpa.allocator()) catch unreachable;
+            defer alloc.gpa.allocator().free(realpath);
+            self.cwd_path = alloc.gpa.allocator().dupe(u8, realpath) catch unreachable;
         }
 
         return std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ self.cwd_path.?, "|", s }) catch unreachable;

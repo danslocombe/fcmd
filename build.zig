@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    exe.linkLibC();
+    exe.root_module.link_libc = true;
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -45,7 +45,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    basic_tests.linkLibC();
+    basic_tests.root_module.link_libc = true;
     const run_basic_tests = b.addRunArtifact(basic_tests);
 
     // Phase 1: Single-process stress tests
@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    phase1_tests.linkLibC();
+    phase1_tests.root_module.link_libc = true;
     const run_phase1_tests = b.addRunArtifact(phase1_tests);
 
     // Phase 2: Data integrity tests
@@ -67,7 +67,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    phase2_tests.linkLibC();
+    phase2_tests.root_module.link_libc = true;
     const run_phase2_tests = b.addRunArtifact(phase2_tests);
 
     // Phase 3: Edge cases tests
@@ -78,7 +78,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    phase3_tests.linkLibC();
+    phase3_tests.root_module.link_libc = true;
     const run_phase3_tests = b.addRunArtifact(phase3_tests);
 
     // Phase 5: Additional multi-process scenarios
@@ -89,7 +89,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    phase5_tests.linkLibC();
+    phase5_tests.root_module.link_libc = true;
     const run_phase5_tests = b.addRunArtifact(phase5_tests);
 
     const test_step = b.step("test", "Run unit tests");
@@ -125,7 +125,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    exe_check.linkLibC();
+    exe_check.root_module.link_libc = true;
     const check = b.step("check", "Check if project compiles");
     check.dependOn(&exe_check.step);
 }

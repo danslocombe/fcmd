@@ -2,9 +2,9 @@ const std = @import("std");
 const alloc = @import("alloc.zig");
 
 pub fn build_preprompt() []const u8 {
-    var cwd = std.fs.cwd();
     var buffer: [std.os.windows.PATH_MAX_WIDE * 3 + 1]u8 = undefined;
-    const filename = std.os.getFdPath(cwd.fd, &buffer) catch unreachable;
+    const len = std.process.currentPath(alloc.g_io, &buffer) catch unreachable;
+    const filename = buffer[0..len];
 
     const desired_len = 40;
     const compressed = compress_path(filename, desired_len);

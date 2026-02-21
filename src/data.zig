@@ -31,7 +31,7 @@ const initial_size = 256;
 pub const GlobalContext = MMapContext;
 
 pub const MMapContext = struct {
-    data_mutex: std.Thread.Mutex = .{},
+    data_mutex: std.Io.Mutex = .init,
 
     unload_event: *anyopaque = undefined,
     reload_event: *anyopaque = undefined,
@@ -53,14 +53,9 @@ pub const BackingData = struct {
     size_in_bytes_ptr: *std.atomic.Value(i32),
 
     pub fn init(state_dir: []const u8, context: *MMapContext) void {
-        std.fs.makeDirAbsolute(state_dir) catch |err| {
-            switch (err) {
-                error.PathAlreadyExists => {
-                    // This is fine
-                },
-                else => {
-                    alloc.fmt_panic("MakeDirAbsolute error when creating '{s}' {}\n", .{ state_dir, err });
-                },
+        std.Io.Dir.createDirPath(std.Io.Dir.cwd(), alloc.g_io, state_dir) catch |err| {
+            if (err != error.PathAlreadyExists) {
+                alloc.fmt_panic("createDirPath error when creating '{s}' {}\n", .{ state_dir, err });
             }
         };
 
@@ -525,7 +520,7 @@ pub fn background_unloader_loop(mmap_context: *MMapContext) void {
         log.log_debug("[Background Unloader] Event signaled!\n", .{});
 
         log.log_debug("[Background Unloader] Acquiring local mutex...\n", .{});
-        mmap_context.data_mutex.lock();
+        mmap_context.data_mutex.lockUncancelable(alloc.g_io);
         // Now locally safe to unload
 
         log.log_debug("Unloading file...\n", .{});
@@ -554,6 +549,6 @@ pub fn background_unloader_loop(mmap_context: *MMapContext) void {
 
         BackingData.open_map(null, mmap_context);
 
-        mmap_context.data_mutex.unlock();
+        mmap_context.data_mutex.unlock(alloc.g_io);
     }
 }

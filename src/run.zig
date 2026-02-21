@@ -4,7 +4,7 @@ const shell = @import("shell.zig");
 const windows = @import("windows.zig");
 const log = @import("log.zig");
 
-pub var g_current_running_process_info: ?std.os.windows.PROCESS_INFORMATION = null;
+pub var g_current_running_process_info: ?windows.PROCESS_INFORMATION = null;
 
 pub fn run(cmd: []const u8) RunResult {
     if (FroggyCommand.try_get_froggy_command(cmd)) |froggy| {
@@ -24,13 +24,11 @@ pub const FroggyCommand = union(enum) {
     pub fn execute(self: FroggyCommand) RunResult {
         switch (self) {
             .Cd => |cd| {
-                // Same number of bytes should be enough space
-                const utf16_buffer = alloc.temp_alloc.allocator().alloc(u16, cd.len) catch unreachable;
-                _ = std.unicode.utf8ToUtf16Le(utf16_buffer, cd) catch unreachable;
-                std.os.windows.SetCurrentDirectory(utf16_buffer) catch |err| {
-                    std.debug.print("CD Error {}\n", .{err});
+                const utf16_buffer = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), cd) catch unreachable;
+                if (!windows.SetCurrentDirectoryW(utf16_buffer.ptr)) {
+                    std.debug.print("CD Error {}\n", .{windows.GetLastError()});
                     return .{ .add_to_history = false };
-                };
+                }
 
                 return .{};
             },
@@ -144,14 +142,14 @@ pub fn run_cmd(cmd: []const u8) RunResult {
     };
 
     g_current_running_process_info = undefined;
-    std.os.windows.CreateProcessW(null, cmd_buf.ptr, null, null, 1, flags, null, null, &startup_info, &g_current_running_process_info.?) catch |err| {
+    if (!windows.CreateProcessW(cmd_buf.ptr, @bitCast(flags), &startup_info, &g_current_running_process_info.?)) {
         g_current_running_process_info = null;
-        std.debug.print("Error! Unable to run command '{s}', CreateProcessW error {}\n", .{ cmd, err });
+        std.debug.print("Error! Unable to run command '{s}', CreateProcessW error {}\n", .{ cmd, windows.GetLastError() });
         return .{ .add_to_history = false };
-    };
+    }
 
     if (!hack_run_async(cmd)) {
-        std.os.windows.WaitForSingleObject(g_current_running_process_info.?.hThread, std.os.windows.INFINITE) catch unreachable;
+        _ = windows.WaitForSingleObject(g_current_running_process_info.?.hThread, windows.INFINITE);
     }
 
     cleanup_process_handles();

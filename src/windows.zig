@@ -56,6 +56,31 @@ pub const FlushViewOfFile = import.FlushViewOfFile;
 pub const GetCurrentProcessId = import.GetCurrentProcessId;
 pub const LARGE_INTEGER = import.LARGE_INTEGER;
 
+// Types and constants no longer in std.os.windows
+pub const PROCESS_INFORMATION = extern struct {
+    hProcess: std.os.windows.HANDLE,
+    hThread: std.os.windows.HANDLE,
+    dwProcessId: std.os.windows.DWORD,
+    dwThreadId: std.os.windows.DWORD,
+};
+pub const INFINITE: std.os.windows.DWORD = 0xFFFFFFFF;
+pub const CTRL_C_EVENT: std.os.windows.DWORD = 0;
+pub const CTRL_BREAK_EVENT: std.os.windows.DWORD = 1;
+pub const CTRL_CLOSE_EVENT: std.os.windows.DWORD = 2;
+
+pub fn SetCurrentDirectoryW(path: [*:0]const u16) bool {
+    return import.SetCurrentDirectoryW(@constCast(path)) != 0;
+}
+
+pub fn CreateProcessW(
+    lp_command_line: [*:0]u16,
+    creation_flags: u32,
+    startup_info: *std.os.windows.STARTUPINFOW,
+    process_info: *PROCESS_INFORMATION,
+) bool {
+    return import.CreateProcessW(null, lp_command_line, null, null, 1, creation_flags, null, null, @ptrCast(startup_info), @ptrCast(process_info)) != 0;
+}
+
 pub var g_stdout: *anyopaque = undefined;
 pub var g_stdin: *anyopaque = undefined;
 
@@ -73,7 +98,7 @@ pub fn setup_console() void {
     set_console_mode();
 
     // Add handle for Ctrl + C.
-    std.os.windows.SetConsoleCtrlHandler(control_signal_handler, true) catch @panic("Failed to set control signal handler");
+    if (import.SetConsoleCtrlHandler(control_signal_handler, 1) == 0) @panic("Failed to set control signal handler");
 }
 
 pub fn set_console_mode() void {
@@ -139,7 +164,7 @@ pub fn copy_to_clipboard(s: []const u8) void {
 
 pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(.c) std.os.windows.BOOL {
     switch (signal) {
-        std.os.windows.CTRL_C_EVENT, std.os.windows.CTRL_BREAK_EVENT, std.os.windows.CTRL_CLOSE_EVENT => {
+        CTRL_C_EVENT, CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT => {
             //write_console("\nCtrl C input read\n");
             if (run.try_interupt_running_process()) {
                 // We have passed the interupt downstream to the running program.
@@ -167,83 +192,3 @@ pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(.c) std.os.
     }
 }
 
-// Hacky
-// In the standard lib there are functions that can panic on bad input.
-// We want are using these functions to check if a given string is a path
-// so it needs to handle the "worst of all inputs"
-// Copy paste the std lib code and map the panic to an error.
-pub const CopyPastedFromStdLibWithAdditionalSafety = struct {
-    const Dir = std.fs.Dir;
-    const OpenDirOptions = Dir.OpenOptions;
-    const OpenError = Dir.OpenError;
-    const This = @This();
-    pub fn openIterableDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
-        const sub_path_w = try std.os.windows.sliceToPrefixedFileW(self.fd, sub_path);
-        return try This.openDirW(self, sub_path_w.span().ptr, args, true);
-    }
-
-    pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions, iterable: bool) OpenError!Dir {
-        const w = std.os.windows;
-        // TODO remove some of these flags if args.access_sub_paths is false
-        const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
-            w.SYNCHRONIZE | w.FILE_TRAVERSE;
-        const flags: u32 = if (iterable) base_flags | w.FILE_LIST_DIRECTORY else base_flags;
-        const dir = try This.openDirAccessMaskW(self, sub_path_w, flags, !args.follow_symlinks);
-        return dir;
-    }
-
-    fn openDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u32, no_follow: bool) OpenError!Dir {
-        const w = std.os.windows;
-
-        var result = Dir{
-            .fd = undefined,
-        };
-
-        const path_len_bytes = @as(u16, @intCast(std.mem.sliceTo(sub_path_w, 0).len * 2));
-        var nt_name = w.UNICODE_STRING{
-            .Length = path_len_bytes,
-            .MaximumLength = path_len_bytes,
-            .Buffer = @constCast(sub_path_w),
-        };
-        var attr = w.OBJECT_ATTRIBUTES{
-            .Length = @sizeOf(w.OBJECT_ATTRIBUTES),
-            .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w)) null else self.fd,
-            .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
-            .ObjectName = &nt_name,
-            .SecurityDescriptor = null,
-            .SecurityQualityOfService = null,
-        };
-        const open_reparse_point: w.DWORD = if (no_follow) w.FILE_OPEN_REPARSE_POINT else 0x0;
-        var io: w.IO_STATUS_BLOCK = undefined;
-        const rc = w.ntdll.NtCreateFile(
-            &result.fd,
-            access_mask,
-            &attr,
-            &io,
-            null,
-            0,
-            w.FILE_SHARE_READ | w.FILE_SHARE_WRITE,
-            w.FILE_OPEN,
-            w.FILE_DIRECTORY_FILE | w.FILE_SYNCHRONOUS_IO_NONALERT | w.FILE_OPEN_FOR_BACKUP_INTENT | open_reparse_point,
-            null,
-            0,
-        );
-        switch (rc) {
-            .SUCCESS => return result,
-
-            // This is the change, because we are trying to navigate to arbitrary user commands this was triggering on urls
-            // Replace the unreachable here with an error
-            //.OBJECT_NAME_INVALID => unreachable,
-            .OBJECT_NAME_INVALID => return error.NotDir,
-
-            .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
-            .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-            .NOT_A_DIRECTORY => return error.NotDir,
-            // This can happen if the directory has 'List folder contents' permission set to 'Deny'
-            // and the directory is trying to be opened for iteration.
-            .ACCESS_DENIED => return error.AccessDenied,
-            .INVALID_PARAMETER => unreachable,
-            else => return w.unexpectedStatus(rc),
-        }
-    }
-};
