@@ -92,12 +92,17 @@ pub fn build(b: *std.Build) void {
     phase5_tests.root_module.link_libc = true;
     const run_phase5_tests = b.addRunArtifact(phase5_tests);
 
+    // Phase 5 tests spawn fcmd.exe, so they need the exe to be built first
+    run_phase5_tests.step.dependOn(b.getInstallStep());
+
+    // Run tests sequentially to avoid Zig 0.16.0-dev IPC hangs under parallel execution
+    run_basic_tests.step.dependOn(&run_unit_tests.step);
+    run_phase1_tests.step.dependOn(&run_basic_tests.step);
+    run_phase2_tests.step.dependOn(&run_phase1_tests.step);
+    run_phase3_tests.step.dependOn(&run_phase2_tests.step);
+    run_phase5_tests.step.dependOn(&run_phase3_tests.step);
+
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_unit_tests.step);
-    test_step.dependOn(&run_basic_tests.step);
-    test_step.dependOn(&run_phase1_tests.step);
-    test_step.dependOn(&run_phase2_tests.step);
-    test_step.dependOn(&run_phase3_tests.step);
     test_step.dependOn(&run_phase5_tests.step);
 
     // Individual test steps

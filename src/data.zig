@@ -114,6 +114,10 @@ pub const BackingData = struct {
 
         const unload_event = get_event_response.?;
         mmap_context.unload_event = unload_event;
+        // Reset to non-signaled regardless of prior state: if a previous process crashed mid-remap
+        // it may have left unload_event signaled, which would cause the background thread to fire
+        // immediately and deadlock while waiting for reload_event that no one will ever set.
+        _ = windows.ResetEvent(unload_event);
 
         get_event_response = windows.CreateEventA(null, manually_reset, initial_state, reload_event_name);
         if (get_event_response == null) {

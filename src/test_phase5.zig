@@ -7,7 +7,7 @@ const test_mp = @import("test_multiprocess.zig");
 // ============================================================================
 
 test "simple" {
-    const temp_dir = std.process.getEnvVarOwned(std.testing.allocator, "TEMP") catch std.process.getEnvVarOwned(std.testing.allocator, "TMP") catch unreachable;
+    const temp_dir = (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TEMP") catch (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TMP") catch unreachable;
     defer std.testing.allocator.free(temp_dir);
 
     const test_state_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ temp_dir, "test_simple" });
@@ -16,8 +16,8 @@ test "simple" {
     // Clean up
     const cleanup_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ test_state_path, "trie.frog" });
     defer std.testing.allocator.free(cleanup_path);
-    std.fs.cwd().deleteFile(cleanup_path) catch {};
-    defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+    std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
 
     var controller = test_mp.ProcessController.init(std.testing.allocator);
     defer controller.deinit();
@@ -52,7 +52,7 @@ test "simple" {
 }
 
 test "seq_inserts" {
-    const temp_dir = std.process.getEnvVarOwned(std.testing.allocator, "TEMP") catch std.process.getEnvVarOwned(std.testing.allocator, "TMP") catch unreachable;
+    const temp_dir = (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TEMP") catch (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TMP") catch unreachable;
     defer std.testing.allocator.free(temp_dir);
 
     const test_state_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ temp_dir, "test_seq_inserts" });
@@ -61,8 +61,8 @@ test "seq_inserts" {
     // Clean up
     const cleanup_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ test_state_path, "trie.frog" });
     defer std.testing.allocator.free(cleanup_path);
-    std.fs.cwd().deleteFile(cleanup_path) catch {};
-    //defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+    std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
+    //defer std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
 
     const exe_path = "zig-out\\bin\\fcmd.exe";
 
@@ -102,7 +102,7 @@ test "seq_inserts" {
 }
 
 test "concurrent_inserts" {
-    const temp_dir = std.process.getEnvVarOwned(std.testing.allocator, "TEMP") catch std.process.getEnvVarOwned(std.testing.allocator, "TMP") catch unreachable;
+    const temp_dir = (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TEMP") catch (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TMP") catch unreachable;
     defer std.testing.allocator.free(temp_dir);
 
     const test_state_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ temp_dir, "test_concurrent_inserts" });
@@ -111,8 +111,8 @@ test "concurrent_inserts" {
     // Clean up
     const cleanup_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ test_state_path, "trie.frog" });
     defer std.testing.allocator.free(cleanup_path);
-    std.fs.cwd().deleteFile(cleanup_path) catch {};
-    //defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+    std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
+    //defer std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
 
     const exe_path = "zig-out\\bin\\fcmd.exe";
 
@@ -152,7 +152,7 @@ test "concurrent_inserts" {
 }
 
 test "rapid_insert_stress" {
-    const temp_dir = std.process.getEnvVarOwned(std.testing.allocator, "TEMP") catch std.process.getEnvVarOwned(std.testing.allocator, "TMP") catch unreachable;
+    const temp_dir = (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TEMP") catch (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TMP") catch unreachable;
     defer std.testing.allocator.free(temp_dir);
 
     const test_state_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ temp_dir, "test_rapid_insert_stress" });
@@ -161,8 +161,8 @@ test "rapid_insert_stress" {
     // Clean up
     const cleanup_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ test_state_path, "trie.frog" });
     defer std.testing.allocator.free(cleanup_path);
-    std.fs.cwd().deleteFile(cleanup_path) catch {};
-    defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+    std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
 
     const exe_path = "zig-out\\bin\\fcmd.exe";
 
@@ -302,7 +302,7 @@ test "rapid_insert_stress" {
 }
 
 test "Phase 5: search during concurrent inserts" {
-    const temp_dir = std.process.getEnvVarOwned(std.testing.allocator, "TEMP") catch std.process.getEnvVarOwned(std.testing.allocator, "TMP") catch unreachable;
+    const temp_dir = (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TEMP") catch (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TMP") catch unreachable;
     defer std.testing.allocator.free(temp_dir);
 
     const test_state_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ temp_dir, "test_search_during_insert" });
@@ -311,8 +311,8 @@ test "Phase 5: search during concurrent inserts" {
     // Clean up
     const cleanup_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ test_state_path, "trie.frog" });
     defer std.testing.allocator.free(cleanup_path);
-    std.fs.cwd().deleteFile(cleanup_path) catch {};
-    defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+    std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
 
     const exe_path = "zig-out\\bin\\fcmd.exe";
 
@@ -481,7 +481,7 @@ test "Phase 5: search during concurrent inserts" {
 }
 
 test "Phase 5: shared prefix stress - concurrent tall→wide promotions" {
-    const temp_dir = std.process.getEnvVarOwned(std.testing.allocator, "TEMP") catch std.process.getEnvVarOwned(std.testing.allocator, "TMP") catch unreachable;
+    const temp_dir = (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TEMP") catch (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TMP") catch unreachable;
     defer std.testing.allocator.free(temp_dir);
 
     const test_state_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ temp_dir, "test_shared_prefix" });
@@ -490,8 +490,8 @@ test "Phase 5: shared prefix stress - concurrent tall→wide promotions" {
     // Clean up
     const cleanup_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ test_state_path, "trie.frog" });
     defer std.testing.allocator.free(cleanup_path);
-    std.fs.cwd().deleteFile(cleanup_path) catch {};
-    defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+    std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
 
     // No need to create empty state file - first insert will create it
     const exe_path = "zig-out\\bin\\fcmd.exe";
@@ -593,7 +593,7 @@ test "Phase 5: shared prefix stress - concurrent tall→wide promotions" {
 }
 
 test "duplicate_inserts_decrease_cost" {
-    const temp_dir = std.process.getEnvVarOwned(std.testing.allocator, "TEMP") catch std.process.getEnvVarOwned(std.testing.allocator, "TMP") catch unreachable;
+    const temp_dir = (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TEMP") catch (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TMP") catch unreachable;
     defer std.testing.allocator.free(temp_dir);
 
     const test_state_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ temp_dir, "test_duplicate_inserts_decrease_cost" });
@@ -602,8 +602,8 @@ test "duplicate_inserts_decrease_cost" {
     // Clean up
     const cleanup_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ test_state_path, "trie.frog" });
     defer std.testing.allocator.free(cleanup_path);
-    std.fs.cwd().deleteFile(cleanup_path) catch {};
-    defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+    std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
 
     const exe_path = "zig-out\\bin\\fcmd.exe";
     const test_string = "git status";
@@ -696,7 +696,7 @@ test "duplicate_inserts_decrease_cost" {
 }
 
 test "Phase 5: concurrent score updates - multiple commands" {
-    const temp_dir = std.process.getEnvVarOwned(std.testing.allocator, "TEMP") catch std.process.getEnvVarOwned(std.testing.allocator, "TMP") catch unreachable;
+    const temp_dir = (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TEMP") catch (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TMP") catch unreachable;
     defer std.testing.allocator.free(temp_dir);
 
     const test_state_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ temp_dir, "test_concurrent_score_updates" });
@@ -705,8 +705,8 @@ test "Phase 5: concurrent score updates - multiple commands" {
     // Clean up
     const cleanup_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ temp_dir, "trie.frog" });
     defer std.testing.allocator.free(cleanup_path);
-    std.fs.cwd().deleteFile(cleanup_path) catch {};
-    defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+    std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
 
     const exe_path = "zig-out\\bin\\fcmd.exe";
 
@@ -806,7 +806,7 @@ test "Phase 5: concurrent score updates - multiple commands" {
 }
 
 test "Phase 5: concurrent score updates - shared prefixes" {
-    const temp_dir = std.process.getEnvVarOwned(std.testing.allocator, "TEMP") catch std.process.getEnvVarOwned(std.testing.allocator, "TMP") catch unreachable;
+    const temp_dir = (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TEMP") catch (std.process.Environ{ .block = .global }).getAlloc(std.testing.allocator, "TMP") catch unreachable;
     defer std.testing.allocator.free(temp_dir);
 
     const test_state_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ temp_dir, "test_concurrent_score_shared_prefix" });
@@ -815,8 +815,8 @@ test "Phase 5: concurrent score updates - shared prefixes" {
     // Clean up
     const cleanup_path = try std.fs.path.join(std.testing.allocator, &[_][]const u8{ test_state_path, "trie.frog" });
     defer std.testing.allocator.free(cleanup_path);
-    std.fs.cwd().deleteFile(cleanup_path) catch {};
-    defer std.fs.cwd().deleteFile(cleanup_path) catch {};
+    std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
+    defer std.Io.Dir.cwd().deleteFile(std.testing.io, cleanup_path) catch {};
 
     const exe_path = "zig-out\\bin\\fcmd.exe";
 

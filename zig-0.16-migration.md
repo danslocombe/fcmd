@@ -212,6 +212,77 @@ if (!windows.SetCurrentDirectoryW(utf16_buffer.ptr)) { ... }
 
 ---
 
+---
+
+## src/test_phase5.zig + src/test_multiprocess.zig
+
+**`std.process.getEnvVarOwned`** removed. Replacement uses `Environ.getAlloc` with the global env block:
+
+```zig
+// Before
+std.process.getEnvVarOwned(alloc, "TEMP") catch ...
+
+// After
+(std.process.Environ{ .block = .global }).getAlloc(alloc, "TEMP") catch ...
+```
+
+**`std.fs.cwd()` in test context** — use `std.Io.Dir.cwd()` with `std.testing.io`:
+
+```zig
+// Before
+std.fs.cwd().deleteFile(path) catch {};
+
+// After
+std.Io.Dir.cwd().deleteFile(std.testing.io, path) catch {};
+```
+
+**`std.process.Child` API** fully replaced by top-level `std.process.spawn`:
+
+```zig
+// Before
+var child = std.process.Child.init(args, alloc);
+child.stdout_behavior = .Inherit;
+child.stderr_behavior = .Inherit;
+try child.spawn();
+
+// After
+const child = try std.process.spawn(std.testing.io, .{
+    .argv = args,
+    .stdout = .inherit,
+    .stderr = .inherit,
+});
+```
+
+**`child.kill()` / `child.wait()`** now take `io` and `kill` is `void`:
+
+```zig
+// Before
+_ = proc.kill() catch {};
+const term = try proc.wait();
+switch (term) { .Exited => |code| ..., else => 255 }
+
+// After
+proc.kill(std.testing.io);
+const term = try proc.wait(std.testing.io);
+switch (term) { .exited => |code| ..., else => 255 }
+```
+
+---
+
+## src/data.zig (runtime fix)
+
+**Named event left signaled by crashed processes** — `CreateEventA` with a named event opens the existing
+object without resetting its state. If a previous fcmd process crashed mid-remap, `fcmd_unload_data` could
+be left signaled, causing the background_unloader_loop to fire immediately on next startup and deadlock
+(holds mutex while waiting for reload_event that is never set). Fix: call `ResetEvent` after create/open.
+
+```zig
+// After creating unload_event:
+_ = windows.ResetEvent(unload_event); // Reset if left signaled by a crashed process
+```
+
+---
+
 ## Still present in `std.os.windows` (no changes needed)
 
 - `DWORD`, `BOOL`, `HANDLE`

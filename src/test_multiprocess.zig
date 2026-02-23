@@ -23,18 +23,18 @@ pub const ProcessController = struct {
 
     pub fn deinit(self: *ProcessController) void {
         for (self.processes.items) |*proc| {
-            _ = proc.kill() catch {};
+            proc.kill(std.testing.io);
         }
         self.processes.deinit(self.allocator);
     }
 
     /// Spawn a test process with given arguments
     pub fn spawn(self: *ProcessController, args: []const []const u8) !void {
-        var child = std.process.Child.init(args, self.allocator);
-        child.stdout_behavior = .Inherit;
-        child.stderr_behavior = .Inherit;
-
-        try child.spawn();
+        const child = try std.process.spawn(std.testing.io, .{
+            .argv = args,
+            .stdout = .ignore,
+            .stderr = .inherit,
+        });
         try self.processes.append(self.allocator, child);
     }
 
@@ -43,9 +43,9 @@ pub const ProcessController = struct {
         var exit_codes = try self.allocator.alloc(u8, self.processes.items.len);
 
         for (self.processes.items, 0..) |*proc, i| {
-            const term = try proc.wait();
+            const term = try proc.wait(std.testing.io);
             exit_codes[i] = switch (term) {
-                .Exited => |code| @intCast(code),
+                .exited => |code| @intCast(code),
                 else => 255,
             };
         }
