@@ -64,7 +64,15 @@ pub const PROCESS_INFORMATION = extern struct {
     dwThreadId: std.os.windows.DWORD,
 };
 pub const INFINITE: std.os.windows.DWORD = 0xFFFFFFFF;
+pub const WAIT_TIMEOUT: std.os.windows.DWORD = 0x102;
 pub const CTRL_C_EVENT: std.os.windows.DWORD = 0;
+
+/// Call Win32 ExitProcess directly, bypassing any Zig runtime cleanup that
+/// could block on background threads.
+pub fn exitProcess(exit_code: u32) noreturn {
+    import.ExitProcess(exit_code);
+    unreachable;
+}
 pub const CTRL_BREAK_EVENT: std.os.windows.DWORD = 1;
 pub const CTRL_CLOSE_EVENT: std.os.windows.DWORD = 2;
 

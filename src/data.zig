@@ -17,6 +17,7 @@ const SECTION_EXTEND_SIZE: c_int = 0x0010;
 const SECTION_MAP_EXECUTE_EXPLICIT: c_int = 0x0020;
 const FILE_MAP_ALL_ACCESS = ((((STANDARD_RIGHTS_REQUIRED | SECTION_QUERY) | SECTION_MAP_WRITE) | SECTION_MAP_READ) | SECTION_MAP_EXECUTE) | SECTION_EXTEND_SIZE;
 const INFINITE = 0xFFFFFFFF;
+const RELOAD_TIMEOUT_MS = 5_000;
 
 const magic_number = [_]u8{ 'f', 'r', 'o', 'g' };
 const current_version: u8 = 3;
@@ -461,6 +462,7 @@ pub fn ensure_other_processes_have_released_handle(mmap_context: *MMapContext) v
     }
 
     // @Cleanup is there a better way of doing this?
+    var spin_count: u32 = 0;
     while (true) {
         //const WAIT_OBJECT_0 = 0x00000000L;
         //if (windows.WaitForSingleObject(g_cross_process_semaphore, INFINITE) == 0) {
@@ -486,6 +488,12 @@ pub fn ensure_other_processes_have_released_handle(mmap_context: *MMapContext) v
             // Someone else is still holding the semaphore, continue to wait
             // 1ms
             windows.Sleep(1);
+            spin_count += 1;
+            if (spin_count > 30_000) {
+                alloc.fmt_panic(
+                    "Deadlock: two processes appear to be resizing the trie simultaneously. " ++
+                    "This is a known protocol limitation.", .{});
+            }
         }
     }
 }
@@ -540,7 +548,18 @@ pub fn background_unloader_loop(mmap_context: *MMapContext) void {
         // ...
 
         log.log_debug("Waiting until its safe to reload...\n", .{});
-        _ = windows.WaitForSingleObject(mmap_context.reload_event, INFINITE);
+        const reload_result = windows.WaitForSingleObject(mmap_context.reload_event, RELOAD_TIMEOUT_MS);
+        if (reload_result == windows.WAIT_TIMEOUT) {
+            // The process that set unload_event likely crashed before calling
+            // signal_other_processes_can_reaquire_handle. Recover: re-open map
+            // with current on-disk state and release the semaphore we decremented above.
+            log.log_info("[Background Unloader] Timed out waiting for reload_event; recovering\n", .{});
+            var prev: i32 = -1;
+            _ = windows.ReleaseSemaphore(mmap_context.cross_process_semaphore, 1, &prev);
+            BackingData.open_map(null, mmap_context);
+            mmap_context.data_mutex.unlock(alloc.g_io);
+            continue;
+        }
 
         // Increment semaphore to signify we are reading the file
         var prev_semaphore_count: i32 = -1;

@@ -226,8 +226,10 @@ pub fn main(init: std.process.Init) !void {
 
     // Check for test mode
     if (args.len > 1 and std.mem.eql(u8, args[1], "--test-mp")) {
-        const exit_code = try runTestMode(args);
-        std.process.exit(exit_code);
+        const exit_code = runTestMode(args) catch 1;
+        // Use ExitProcess directly: std.process.exit does not terminate background
+        // threads spawned by BackingData.init in Zig 0.16-dev, causing a hang.
+        windows.exitProcess(@intCast(exit_code));
     }
 
     var state_dir_override: ?[]const u8 = null;
