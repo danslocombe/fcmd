@@ -25,6 +25,11 @@ const current_version: u8 = 3;
 const unload_event_name: [:0]const u8 = "fcmd_unload_data";
 const reload_event_name: [:0]const u8 = "fcmd_reload_data";
 const semaphore_name: [:0]const u8 = "Local\\fcmd_data_semaphore";
+const resize_mutex_name: [:0]const u8 = "Local\\fcmd_resize_mutex";
+
+// WaitForSingleObject return codes for mutex ownership
+const WAIT_OBJECT_0: u32 = 0x00000000;
+const WAIT_ABANDONED_0: u32 = 0x00000080; // Prior holder crashed; we still own it
 
 const initial_size = 256;
 
@@ -38,6 +43,8 @@ pub const MMapContext = struct {
     reload_event: *anyopaque = undefined,
     hack_we_are_the_process_requesting_an_unload: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     cross_process_semaphore: *anyopaque = undefined,
+    // Named mutex that serializes concurrent resizers across processes (fixes Bug 3).
+    resize_mutex: *anyopaque = undefined,
 
     filepath: [*c]const u8 = "",
 
@@ -101,6 +108,17 @@ pub const BackingData = struct {
         }
 
         log.log_debug("Released semaphore, prev_count was {}\n", .{prev_semaphore_count});
+
+        // Create resize mutex — serializes concurrent resizers across processes (Bug 3 fix).
+        // CreateMutexA returns an existing handle if the name already exists, so this is
+        // safe to call from multiple processes simultaneously.
+        const resize_mutex = windows.CreateMutexA(null, 0, resize_mutex_name);
+        if (resize_mutex == null) {
+            const last_error = windows.GetLastError();
+            log.log_debug("Failed to create resize mutex, Error {}\n", .{last_error});
+            return error.CannotCreateResizeMutex;
+        }
+        mmap_context.resize_mutex = resize_mutex.?;
 
         // Create events
         const manually_reset = 1;
@@ -415,7 +433,21 @@ pub fn DumbList(comptime T: type) type {
         pub fn append(self: *Self, x: T) void {
             const current_len = self.len.load(.acquire);
             if (current_len >= self.map.len) {
-                // Resize
+                // Resize — acquire the cross-process resize mutex first so that only one
+                // resizer runs at a time. Without this, two simultaneous resizers both set
+                // hack=true, both background threads skip the semaphore decrement, and
+                // neither sees the count reach zero (Bug 3 livelock).
+                //
+                // The second resizer blocks here (hack=false), so its background thread
+                // responds normally to unload_event and decrements the semaphore, letting
+                // the first resizer proceed. WAIT_ABANDONED_0 (0x80) means the prior holder
+                // crashed mid-resize; we still own the mutex and should proceed.
+                const wait_result = windows.WaitForSingleObject(self.mmap_context.resize_mutex, INFINITE);
+                if (wait_result != WAIT_OBJECT_0 and wait_result != WAIT_ABANDONED_0) {
+                    alloc.fmt_panic("Failed to acquire resize mutex: {}", .{wait_result});
+                }
+                defer _ = windows.ReleaseMutex(self.mmap_context.resize_mutex);
+
                 const new_size = initial_size + self.map.len * 2 * @sizeOf(lego_trie.TrieBlock);
 
                 ensure_other_processes_have_released_handle(self.mmap_context);

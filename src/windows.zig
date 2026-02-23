@@ -55,6 +55,8 @@ pub const UnmapViewOfFile = import.UnmapViewOfFile;
 pub const FlushViewOfFile = import.FlushViewOfFile;
 pub const GetCurrentProcessId = import.GetCurrentProcessId;
 pub const LARGE_INTEGER = import.LARGE_INTEGER;
+pub const CreateMutexA = import.CreateMutexA;
+pub const ReleaseMutex = import.ReleaseMutex;
 
 // Types and constants no longer in std.os.windows
 pub const PROCESS_INFORMATION = extern struct {
