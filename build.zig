@@ -92,8 +92,20 @@ pub fn build(b: *std.Build) void {
     phase5_tests.root_module.link_libc = true;
     const run_phase5_tests = b.addRunArtifact(phase5_tests);
 
-    // Phase 5 tests spawn fcmd.exe, so they need the exe to be built first
+    // Phase 6: Resize behaviour
+    const phase6_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/test_phase6.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    phase6_tests.root_module.link_libc = true;
+    const run_phase6_tests = b.addRunArtifact(phase6_tests);
+
+    // Phase 5 and 6 tests spawn fcmd.exe, so they need the exe to be built first
     run_phase5_tests.step.dependOn(b.getInstallStep());
+    run_phase6_tests.step.dependOn(b.getInstallStep());
 
     // Run tests sequentially to avoid Zig 0.16.0-dev IPC hangs under parallel execution
     run_basic_tests.step.dependOn(&run_unit_tests.step);
@@ -101,9 +113,10 @@ pub fn build(b: *std.Build) void {
     run_phase2_tests.step.dependOn(&run_phase1_tests.step);
     run_phase3_tests.step.dependOn(&run_phase2_tests.step);
     run_phase5_tests.step.dependOn(&run_phase3_tests.step);
+    run_phase6_tests.step.dependOn(&run_phase5_tests.step);
 
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_phase5_tests.step);
+    test_step.dependOn(&run_phase6_tests.step);
 
     // Individual test steps
     const test_basic_step = b.step("test-basic", "Run basic trie tests");
@@ -120,6 +133,9 @@ pub fn build(b: *std.Build) void {
 
     const test_phase5_step = b.step("test-phase5", "Run phase 5 tests");
     test_phase5_step.dependOn(&run_phase5_tests.step);
+
+    const test_phase6_step = b.step("test-phase6", "Run phase 6 resize tests");
+    test_phase6_step.dependOn(&run_phase6_tests.step);
 
     const exe_check = b.addExecutable(.{
         .name = "bounce",

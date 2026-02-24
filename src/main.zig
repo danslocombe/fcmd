@@ -96,6 +96,15 @@ fn runTestMode(args: []const [:0]const u8) !u8 {
         const strings_to_verify = args[4..];
 
         return try runVerifyTest(state_path, strings_to_verify);
+    } else if (std.mem.eql(u8, operation_str, "insert_many")) {
+        if (args.len < 5) {
+            std.debug.print("Error: insert_many requires <state_path> <string1> [string2 ...]\n", .{});
+            return 1;
+        }
+        const state_path = args[3];
+        const strings_to_insert = args[4..];
+
+        return try runInsertManyTest(state_path, strings_to_insert);
     } else if (std.mem.eql(u8, operation_str, "get-cost")) {
         if (args.len < 5) {
             std.debug.print("Error: get-cost requires <state_path> <string>\n", .{});
@@ -133,6 +142,45 @@ fn runInsertTest(state_path: []const u8, string: []const u8) !u8 {
     };
 
     std.debug.print("Successfully inserted '{s}' into {s}\n", .{ string, state_path });
+    return 0;
+}
+
+/// Insert many strings in a single process. Used by phase 6 resize tests: keeping all
+/// inserts in one process means the semaphore count stays at 1, so the resize spin in
+/// ensure_other_processes_have_released_handle immediately sees count==0 and proceeds.
+/// With separate processes each add +1 to the semaphore and ExitProcess kills their
+/// background threads before they can decrement, so the count accumulates and the spin
+/// never terminates.
+fn runInsertManyTest(state_path: []const u8, strings: []const [:0]const u8) !u8 {
+    const abs_path = resolveAndCreateStatePath(state_path) catch {
+        return 1;
+    };
+    defer alloc.gpa.allocator().free(abs_path);
+
+    var context = data.GlobalContext{};
+    data.BackingData.init(abs_path, &context);
+
+    var trie = lego_trie.Trie.init(&context.backing_data.trie_blocks);
+    var view = trie.to_view();
+
+    for (strings) |string| {
+        view.insert(string) catch |err| {
+            std.debug.print("Error inserting string '{s}': {}\n", .{ string, err });
+            return 1;
+        };
+        std.debug.print("Inserted '{s}'\n", .{string});
+    }
+
+    // Flush and unmap before ExitProcess. windows.exitProcess() calls Win32 ExitProcess
+    // directly, which does NOT call UnmapViewOfFile. Per MSDN: "If a process terminates
+    // without calling UnmapViewOfFile, the operating system does not flush modified pages
+    // to the file." The explicit FlushViewOfFile + UnmapViewOfFile pair ensures the trie
+    // data written by the inserts is committed to the file's page cache so that concurrent
+    // reader processes that create fresh mappings from the same file see the correct state.
+    _ = windows.FlushViewOfFile(context.backing_data.map_view_pointer, 0);
+    _ = windows.UnmapViewOfFile(context.backing_data.map_view_pointer);
+
+    std.debug.print("insert_many: inserted {d} strings into {s}\n", .{ strings.len, state_path });
     return 0;
 }
 
@@ -267,4 +315,9 @@ pub fn main(init: std.process.Init) !void {
         alloc.clear_temp_alloc();
         buffer.clearRetainingCapacity();
     }
+
+    // Flush the trie view to disk before exiting. The background thread never calls
+    // UnmapViewOfFile explicitly, and ExitProcess does not flush dirty pages. Without
+    // this, any history entries written since the last resize (or startup) are lost.
+    _ = windows.FlushViewOfFile(context.backing_data.map_view_pointer, 0);
 }
