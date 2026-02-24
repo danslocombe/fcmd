@@ -25,6 +25,7 @@ pub const MapViewOfFile = import.MapViewOfFile;
 pub const OpenFileMappingA = import.OpenFileMappingA;
 pub const OPEN_ALWAYS = import.OPEN_ALWAYS;
 pub const FILE_ATTRIBUTE_NORMAL = import.FILE_ATTRIBUTE_NORMAL;
+pub const FILE_SHARE_READ = import.FILE_SHARE_READ;
 pub const FILE_SHARE_WRITE = import.FILE_SHARE_WRITE;
 pub const PAGE_READWRITE = import.PAGE_READWRITE;
 pub const GetFileAttributesW = import.GetFileAttributesW;

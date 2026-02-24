@@ -151,7 +151,7 @@ pub const BackingData = struct {
         // Open or create the file
         const GENERIC_READ = 0x80000000;
         const GENERIC_WRITE = 0x40000000;
-        const file_handle: ?*anyopaque = windows.CreateFileA(filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
+        const file_handle: ?*anyopaque = windows.CreateFileA(filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
 
         if (file_handle == null) {
             const last_error = windows.GetLastError();
@@ -261,7 +261,7 @@ pub const BackingData = struct {
             if (mmap_context.backing_data.file_handle == null) {
                 const GENERIC_READ = 0x80000000;
                 const GENERIC_WRITE = 0x40000000;
-                const file_handle: ?*anyopaque = windows.CreateFileA(mmap_context.filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
+                const file_handle: ?*anyopaque = windows.CreateFileA(mmap_context.filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
 
                 if (file_handle == null) {
                     const last_error = windows.GetLastError();
