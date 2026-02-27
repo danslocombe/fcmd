@@ -42,7 +42,7 @@ pub const BackingData = struct {
     map_view_pointer: *anyopaque,
     map: []u8,
 
-    trie_blocks: DumbList(lego_trie.TrieBlock),
+    trie_blocks: MappedArray(lego_trie.TrieBlock),
     size_in_bytes_ptr: *std.atomic.Value(i32),
 
     pub fn init(state_dir: []const u8, context: *MMapContext) void {
@@ -111,7 +111,7 @@ pub const BackingData = struct {
         const version = &map[4];
         const size_in_bytes_ptr: *std.atomic.Value(i32) = @ptrCast(@alignCast(@volatileCast(map.ptr + 8)));
 
-        var trie_blocks: DumbList(lego_trie.TrieBlock) = undefined;
+        var trie_blocks: MappedArray(lego_trie.TrieBlock) = undefined;
         trie_blocks.len = @ptrCast(@alignCast(@volatileCast(map.ptr + 16)));
         trie_blocks.mmap_context = mmap_context;
         const start = 16 + @sizeOf(usize);
@@ -166,70 +166,7 @@ pub const BackingData = struct {
 
 };
 
-// For now we just do the dumbest thing
-pub const MMFBackedFixedAllocator = struct {
-    end_index_ptr: *usize,
-    map: []u8,
-
-    pub fn allocator(self: *MMFBackedFixedAllocator) std.mem.Allocator {
-        return .{
-            .ptr = self,
-            .vtable = &.{
-                .alloc = MMFBackedFixedAllocator.alloc,
-                .resize = resize,
-                .free = free,
-            },
-        };
-    }
-
-    fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-        //Copypasted from std.mem.FixedBufferAllocator
-        const self: *MMFBackedFixedAllocator = @ptrCast(@alignCast(ctx));
-        _ = ra;
-        const ptr_align = @as(usize, 1) << @as(std.mem.Allocator.Log2Align, @intCast(log2_ptr_align));
-        var buffer = self.map;
-        const end_index_ptr = self.end_index_ptr;
-        const adjust_off = std.mem.alignPointerOffset(buffer.ptr + end_index_ptr.*, ptr_align) orelse return null;
-        const adjusted_index = end_index_ptr.* + adjust_off;
-        const new_end_index = adjusted_index + n;
-        if (new_end_index > buffer.len) return null;
-        end_index_ptr.* = new_end_index;
-        return buffer.ptr + adjusted_index;
-    }
-
-    fn resize(
-        ctx: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        new_size: usize,
-        return_address: usize,
-    ) bool {
-        _ = return_address;
-        _ = new_size;
-        _ = log2_buf_align;
-        _ = buf;
-        _ = ctx;
-        @panic("unimplemented");
-    }
-
-    fn free(
-        ctx: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        return_address: usize,
-    ) void {
-        _ = return_address;
-        _ = log2_buf_align;
-        _ = buf;
-        _ = ctx;
-
-        // Do nothing
-        // We could do something if the alloc passed is the last alloc
-        // But we don't
-    }
-};
-
-pub fn DumbList(comptime T: type) type {
+pub fn MappedArray(comptime T: type) type {
     return struct {
         const Self = @This();
 

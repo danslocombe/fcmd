@@ -7,7 +7,7 @@ const data = test_exports.data;
 pub const TestContext = struct {
     mmap_context: data.MMapContext,
     len: std.atomic.Value(usize),
-    blocks: data.DumbList(lego_trie.TrieBlock),
+    blocks: data.MappedArray(lego_trie.TrieBlock),
 
     /// Initialize and get the trie from this context
     pub fn trie(self: *TestContext) lego_trie.Trie {
@@ -23,7 +23,7 @@ pub fn create_test_context() TestContext {
             .backing_data = undefined,
         },
         .len = std.atomic.Value(usize).init(0),
-        .blocks = data.DumbList(lego_trie.TrieBlock){
+        .blocks = data.MappedArray(lego_trie.TrieBlock){
             .len = undefined,
             .map = undefined,
             .mmap_context = undefined,
