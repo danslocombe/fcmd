@@ -145,12 +145,7 @@ fn runInsertTest(state_path: []const u8, string: []const u8) !u8 {
     return 0;
 }
 
-/// Insert many strings in a single process. Used by phase 6 resize tests: keeping all
-/// inserts in one process means the semaphore count stays at 1, so the resize spin in
-/// ensure_other_processes_have_released_handle immediately sees count==0 and proceeds.
-/// With separate processes each add +1 to the semaphore and ExitProcess kills their
-/// background threads before they can decrement, so the count accumulates and the spin
-/// never terminates.
+/// Insert many strings in a single process.
 fn runInsertManyTest(state_path: []const u8, strings: []const [:0]const u8) !u8 {
     const abs_path = resolveAndCreateStatePath(state_path) catch {
         return 1;
@@ -303,21 +298,21 @@ pub fn main(init: std.process.Init) !void {
 
     // Instead of a static buffer we need a resizable list as copy/paste can produce a lot of inputs.
     var buffer = std.ArrayList(input.Input){};
-    while (input.read_input(&buffer)) {
-        context.data_mutex.lockUncancelable(alloc.g_io);
+    var should_exit = false;
+    while (!should_exit and input.read_input(&buffer)) {
         for (buffer.items) |in| {
-            g_shell.apply_input(in);
+            if (g_shell.apply_input(in)) {
+                should_exit = true;
+                break;
+            }
         }
 
-        g_shell.draw();
-        context.data_mutex.unlock(alloc.g_io);
+        if (!should_exit) g_shell.draw();
 
         alloc.clear_temp_alloc();
         buffer.clearRetainingCapacity();
     }
 
-    // Flush the trie view to disk before exiting. The background thread never calls
-    // UnmapViewOfFile explicitly, and ExitProcess does not flush dirty pages. Without
-    // this, any history entries written since the last resize (or startup) are lost.
+    // Flush the trie to disk before exiting. ExitProcess does not flush dirty pages.
     _ = windows.FlushViewOfFile(context.backing_data.map_view_pointer, 0);
 }

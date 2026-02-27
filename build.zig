@@ -48,94 +48,48 @@ pub fn build(b: *std.Build) void {
     basic_tests.root_module.link_libc = true;
     const run_basic_tests = b.addRunArtifact(basic_tests);
 
-    // Phase 1: Single-process stress tests
-    const phase1_tests = b.addTest(.{
+    // Extended trie tests (stress, integrity, edge cases)
+    const extended_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_phase1.zig"),
+            .root_source_file = b.path("src/test_trie_extended.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
-    phase1_tests.root_module.link_libc = true;
-    const run_phase1_tests = b.addRunArtifact(phase1_tests);
+    extended_tests.root_module.link_libc = true;
+    const run_extended_tests = b.addRunArtifact(extended_tests);
 
-    // Phase 2: Data integrity tests
-    const phase2_tests = b.addTest(.{
+    // Multi-process scenario tests
+    const multiprocess_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_phase2.zig"),
+            .root_source_file = b.path("src/test_multiprocess_scenarios.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
-    phase2_tests.root_module.link_libc = true;
-    const run_phase2_tests = b.addRunArtifact(phase2_tests);
+    multiprocess_tests.root_module.link_libc = true;
+    const run_multiprocess_tests = b.addRunArtifact(multiprocess_tests);
 
-    // Phase 3: Edge cases tests
-    const phase3_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_phase3.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    phase3_tests.root_module.link_libc = true;
-    const run_phase3_tests = b.addRunArtifact(phase3_tests);
-
-    // Phase 5: Additional multi-process scenarios
-    const phase5_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_phase5.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    phase5_tests.root_module.link_libc = true;
-    const run_phase5_tests = b.addRunArtifact(phase5_tests);
-
-    // Phase 6: Resize behaviour
-    const phase6_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/test_phase6.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    phase6_tests.root_module.link_libc = true;
-    const run_phase6_tests = b.addRunArtifact(phase6_tests);
-
-    // Phase 5 and 6 tests spawn fcmd.exe, so they need the exe to be built first
-    run_phase5_tests.step.dependOn(b.getInstallStep());
-    run_phase6_tests.step.dependOn(b.getInstallStep());
+    // Multi-process tests spawn fcmd.exe, so they need the exe to be built first
+    run_multiprocess_tests.step.dependOn(b.getInstallStep());
 
     // Run tests sequentially to avoid Zig 0.16.0-dev IPC hangs under parallel execution
     run_basic_tests.step.dependOn(&run_unit_tests.step);
-    run_phase1_tests.step.dependOn(&run_basic_tests.step);
-    run_phase2_tests.step.dependOn(&run_phase1_tests.step);
-    run_phase3_tests.step.dependOn(&run_phase2_tests.step);
-    run_phase5_tests.step.dependOn(&run_phase3_tests.step);
-    run_phase6_tests.step.dependOn(&run_phase5_tests.step);
+    run_extended_tests.step.dependOn(&run_basic_tests.step);
+    run_multiprocess_tests.step.dependOn(&run_extended_tests.step);
 
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_phase6_tests.step);
+    test_step.dependOn(&run_multiprocess_tests.step);
 
     // Individual test steps
     const test_basic_step = b.step("test-basic", "Run basic trie tests");
     test_basic_step.dependOn(&run_basic_tests.step);
 
-    const test_phase1_step = b.step("test-phase1", "Run phase 1 tests");
-    test_phase1_step.dependOn(&run_phase1_tests.step);
+    const test_extended_step = b.step("test-extended", "Run extended trie tests");
+    test_extended_step.dependOn(&run_extended_tests.step);
 
-    const test_phase2_step = b.step("test-phase2", "Run phase 2 tests");
-    test_phase2_step.dependOn(&run_phase2_tests.step);
-
-    const test_phase3_step = b.step("test-phase3", "Run phase 3 tests");
-    test_phase3_step.dependOn(&run_phase3_tests.step);
-
-    const test_phase5_step = b.step("test-phase5", "Run phase 5 tests");
-    test_phase5_step.dependOn(&run_phase5_tests.step);
-
-    const test_phase6_step = b.step("test-phase6", "Run phase 6 resize tests");
-    test_phase6_step.dependOn(&run_phase6_tests.step);
+    const test_multiprocess_step = b.step("test-multiprocess", "Run multi-process tests");
+    test_multiprocess_step.dependOn(&run_multiprocess_tests.step);
 
     const exe_check = b.addExecutable(.{
         .name = "bounce",

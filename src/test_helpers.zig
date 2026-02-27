@@ -19,9 +19,6 @@ pub const TestContext = struct {
 pub fn create_test_context() TestContext {
     return TestContext{
         .mmap_context = data.MMapContext{
-            .unload_event = undefined,
-            .reload_event = undefined,
-            .cross_process_semaphore = undefined,
             .filepath = "",
             .backing_data = undefined,
         },

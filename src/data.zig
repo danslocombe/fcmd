@@ -5,9 +5,6 @@ const log = @import("log.zig");
 
 const lego_trie = @import("datastructures/lego_trie.zig");
 
-// Hack workaround macro expansion error in MinGW when referencing ReleaseSemaphore
-extern fn ReleaseSemaphoreA(hSemaphore: *anyopaque, lReleaseCount: i32, lpPreviousCount: *i32) i32;
-
 const STANDARD_RIGHTS_REQUIRED = 0x000F0000;
 const SECTION_QUERY: c_int = 0x0001;
 const SECTION_MAP_WRITE: c_int = 0x0002;
@@ -17,34 +14,22 @@ const SECTION_EXTEND_SIZE: c_int = 0x0010;
 const SECTION_MAP_EXECUTE_EXPLICIT: c_int = 0x0020;
 const FILE_MAP_ALL_ACCESS = ((((STANDARD_RIGHTS_REQUIRED | SECTION_QUERY) | SECTION_MAP_WRITE) | SECTION_MAP_READ) | SECTION_MAP_EXECUTE) | SECTION_EXTEND_SIZE;
 const INFINITE = 0xFFFFFFFF;
-const RELOAD_TIMEOUT_MS = 5_000;
 
 const magic_number = [_]u8{ 'f', 'r', 'o', 'g' };
 const current_version: u8 = 3;
 
-const unload_event_name: [:0]const u8 = "fcmd_unload_data";
-const reload_event_name: [:0]const u8 = "fcmd_reload_data";
-const semaphore_name: [:0]const u8 = "Local\\fcmd_data_semaphore";
-const resize_mutex_name: [:0]const u8 = "Local\\fcmd_resize_mutex";
+const write_mutex_name: [:0]const u8 = "Local\\fcmd_trie_write_mutex";
 
-// WaitForSingleObject return codes for mutex ownership
-const WAIT_OBJECT_0: u32 = 0x00000000;
-const WAIT_ABANDONED_0: u32 = 0x00000080; // Prior holder crashed; we still own it
-
-const initial_size = 256;
+// Fixed 16MB mapping size. Windows only commits physical pages for data actually
+// written, so this costs nothing upfront. Eliminates all cross-process resize coordination.
+const fixed_map_size = 16 * 1024 * 1024;
 
 // Alias for backward compatibility and clarity
 pub const GlobalContext = MMapContext;
 
 pub const MMapContext = struct {
-    data_mutex: std.Io.Mutex = .init,
-
-    unload_event: *anyopaque = undefined,
-    reload_event: *anyopaque = undefined,
-    hack_we_are_the_process_requesting_an_unload: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-    cross_process_semaphore: *anyopaque = undefined,
-    // Named mutex that serializes concurrent resizers across processes (fixes Bug 3).
-    resize_mutex: *anyopaque = undefined,
+    /// Named mutex that serializes all trie writes across processes.
+    write_mutex: *anyopaque = undefined,
 
     filepath: [*c]const u8 = "",
 
@@ -74,79 +59,20 @@ pub const BackingData = struct {
         };
 
         context.backing_data = result;
-
-        // Open the mapping - will automatically discover size if it's an existing mapping
-        open_map(null, context);
-        open_map(@intCast(context.backing_data.size_in_bytes_ptr.load(.acquire)), context);
-
-        const thread = std.Thread.spawn(.{}, background_unloader_loop, .{context}) catch @panic("Could not start background thread");
-        _ = thread;
     }
 
     /// Internal initialization function that handles the actual file mapping and sync object creation
     fn init_internal(filepath: [*c]const u8, mmap_context: *MMapContext) !BackingData {
         log.log_debug("Initializing BackingData for: {s}\n", .{filepath});
 
-        // Create semaphore
-        log.log_debug("Creating semaphore {s}\n", .{semaphore_name});
-        const create_semaphore_result = windows.CreateSemaphoreA(null, 0, 1024, semaphore_name);
-        if (create_semaphore_result == null) {
+        // Create named write mutex — serializes all trie writes across processes.
+        const write_mutex = windows.CreateMutexA(null, 0, write_mutex_name);
+        if (write_mutex == null) {
             const last_error = windows.GetLastError();
-            log.log_debug("Failed to create semaphore {s}, Error {}\n", .{ semaphore_name, last_error });
-            return error.CannotCreateSemaphore;
+            log.log_debug("Failed to create write mutex, Error {}\n", .{last_error});
+            return error.CannotCreateWriteMutex;
         }
-
-        const semaphore = create_semaphore_result.?;
-        mmap_context.cross_process_semaphore = semaphore;
-
-        // Release semaphore to add to the count
-        var prev_semaphore_count: i32 = -1;
-        if (windows.ReleaseSemaphore(semaphore, 1, &prev_semaphore_count) == 0) {
-            const last_error = windows.GetLastError();
-            log.log_debug("Failed to release semaphore, Error {}\n", .{last_error});
-            return error.CannotReleaseSemaphore;
-        }
-
-        log.log_debug("Released semaphore, prev_count was {}\n", .{prev_semaphore_count});
-
-        // Create resize mutex — serializes concurrent resizers across processes (Bug 3 fix).
-        // CreateMutexA returns an existing handle if the name already exists, so this is
-        // safe to call from multiple processes simultaneously.
-        const resize_mutex = windows.CreateMutexA(null, 0, resize_mutex_name);
-        if (resize_mutex == null) {
-            const last_error = windows.GetLastError();
-            log.log_debug("Failed to create resize mutex, Error {}\n", .{last_error});
-            return error.CannotCreateResizeMutex;
-        }
-        mmap_context.resize_mutex = resize_mutex.?;
-
-        // Create events
-        const manually_reset = 1;
-        const initial_state = 0;
-
-        var get_event_response = windows.CreateEventA(null, manually_reset, initial_state, unload_event_name);
-        if (get_event_response == null) {
-            const last_error = windows.GetLastError();
-            log.log_debug("CreateEventA {s} error code {}\n", .{ unload_event_name, last_error });
-            return error.CannotCreateUnloadEvent;
-        }
-
-        const unload_event = get_event_response.?;
-        mmap_context.unload_event = unload_event;
-        // Reset to non-signaled regardless of prior state: if a previous process crashed mid-remap
-        // it may have left unload_event signaled, which would cause the background thread to fire
-        // immediately and deadlock while waiting for reload_event that no one will ever set.
-        _ = windows.ResetEvent(unload_event);
-
-        get_event_response = windows.CreateEventA(null, manually_reset, initial_state, reload_event_name);
-        if (get_event_response == null) {
-            const last_error = windows.GetLastError();
-            log.log_debug("CreateEventA {s} error code {}\n", .{ reload_event_name, last_error });
-            return error.CannotCreateReloadEvent;
-        }
-
-        const reload_event = get_event_response.?;
-        mmap_context.reload_event = reload_event;
+        mmap_context.write_mutex = write_mutex.?;
 
         // Open or create the file
         const GENERIC_READ = 0x80000000;
@@ -159,7 +85,7 @@ pub const BackingData = struct {
             return error.CannotOpenFile;
         }
 
-        const size = initial_size;
+        const size = fixed_map_size;
 
         const map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
         const map_handle = windows.CreateFileMapping(file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
@@ -238,122 +164,6 @@ pub const BackingData = struct {
         };
     }
 
-    pub fn open_map(new_size: ?usize, mmap_context: *MMapContext) void {
-        log.log_debug("Opening map. new_size {any}\n", new_size);
-
-        const size = new_size orelse initial_size;
-
-        if (mmap_context.backing_data.map_pointer) |map_ptr| {
-            std.os.windows.CloseHandle(map_ptr);
-            mmap_context.backing_data.map_pointer = null;
-        }
-
-        const map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
-
-        // Try and open existing mapping
-        const m_open_mapping_result = windows.OpenFileMappingA(FILE_MAP_ALL_ACCESS, 0, map_name);
-        if (m_open_mapping_result) |open_mapping_result| {
-            log.log_debug("Opened existing file mapping!\n", .{});
-            mmap_context.backing_data.map_pointer = open_mapping_result;
-        } else {
-            log.log_debug("Could not open file mapping, creating new..\n", .{});
-            // Create file mapping
-            if (mmap_context.backing_data.file_handle == null) {
-                const GENERIC_READ = 0x80000000;
-                const GENERIC_WRITE = 0x40000000;
-                const file_handle: ?*anyopaque = windows.CreateFileA(mmap_context.filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
-
-                if (file_handle == null) {
-                    const last_error = windows.GetLastError();
-                    alloc.fmt_panic("CreateFileA: Error code {}", .{last_error});
-                }
-
-                mmap_context.backing_data.file_handle = file_handle.?;
-            }
-
-            const map_handle = windows.CreateFileMapping(mmap_context.backing_data.file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
-            if (map_handle == null) {
-                const last_error = windows.GetLastError();
-                alloc.fmt_panic("CreateFileMapping: Error code {}", .{last_error});
-            }
-
-            mmap_context.backing_data.map_pointer = map_handle.?;
-        }
-
-        // @Reliability switch to MapViewOfFile3 to guarentee alignment
-        // https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-mapviewoffile3
-        const map_view = windows.MapViewOfFile(mmap_context.backing_data.map_pointer.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(size));
-
-        if (map_view == null) {
-            const last_error = windows.GetLastError();
-            alloc.fmt_panic("MapViewOfFile: Error code {}", .{last_error});
-        }
-
-        mmap_context.backing_data.map_view_pointer = map_view.?;
-
-        var map = @as([*]volatile u8, @ptrCast(mmap_context.backing_data.map_view_pointer))[0..size];
-
-        const map_magic_number = map[0..4];
-        const version = &map[4];
-        mmap_context.backing_data.size_in_bytes_ptr = @ptrCast(@alignCast(@volatileCast(map.ptr + 8)));
-
-        mmap_context.backing_data.trie_blocks = undefined;
-        mmap_context.backing_data.trie_blocks.mmap_context = mmap_context;
-        mmap_context.backing_data.trie_blocks.len = @ptrCast(@alignCast(@volatileCast(map.ptr + 16)));
-        const start = 16 + @sizeOf(usize);
-        const trie_block_count = @divFloor(map.len - start, @sizeOf(lego_trie.TrieBlock));
-        const end = trie_block_count * @sizeOf(lego_trie.TrieBlock);
-        const trieblock_bytes = map[start .. start + end];
-
-        mmap_context.backing_data.trie_blocks.map = @alignCast(std.mem.bytesAsSlice(lego_trie.TrieBlock, @volatileCast(trieblock_bytes)));
-
-        var magic_equal = true;
-        var magic_all_zero = true;
-        for (map_magic_number, magic_number) |actual_magic, expected_magic| {
-            if (actual_magic != expected_magic) {
-                magic_equal = false;
-            }
-
-            if (actual_magic != 0) {
-                magic_all_zero = false;
-            }
-        }
-
-        if (magic_all_zero) {
-            // Empty, assume new file
-            log.log_info("No data in the state. Resetting ...\n", .{});
-            @memcpy(map_magic_number, &magic_number);
-            version.* = current_version;
-            mmap_context.backing_data.size_in_bytes_ptr.store(@intCast(size), .release);
-
-            // Flush the header to disk
-            if (windows.FlushViewOfFile(mmap_context.backing_data.map_view_pointer, 0) == 0) {
-                const last_error = windows.GetLastError();
-                alloc.fmt_panic("FlushViewOfFile failed: Error {}", .{last_error});
-            }
-        } else if (magic_equal) {
-            if (version.* == current_version) {
-                log.log_debug("Successfully read existing state, {} bytes\n", .{mmap_context.backing_data.size_in_bytes_ptr.load(.acquire)});
-                log.log_debug("Loading block trie, {} blocks, {} used\n", .{ trie_block_count, mmap_context.backing_data.trie_blocks.len.load(.acquire) });
-            } else {
-                alloc.fmt_panic("Unexpected version '{}' expected {}", .{ version.*, current_version });
-            }
-        } else {
-            //alloc.fmt_panic("Unexpected magic number on file '{s}'", .{map_magic_number});
-            alloc.fmt_panic("Unexpected magic number on file", .{});
-        }
-
-        if (new_size) |x| {
-            // Store with release semantics to ensure all previous writes are visible
-            mmap_context.backing_data.size_in_bytes_ptr.store(@intCast(x), .release);
-
-            // Flush the updated size to disk
-            if (windows.FlushViewOfFile(mmap_context.backing_data.map_view_pointer, 0) == 0) {
-                const last_error = windows.GetLastError();
-                alloc.fmt_panic("FlushViewOfFile failed: Error {}", .{last_error});
-            }
-        }
-    }
 };
 
 // For now we just do the dumbest thing
@@ -431,39 +241,13 @@ pub fn DumbList(comptime T: type) type {
         mmap_context: *MMapContext,
 
         pub fn append(self: *Self, x: T) void {
-            const current_len = self.len.load(.acquire);
-            if (current_len >= self.map.len) {
-                // Resize — acquire the cross-process resize mutex first so that only one
-                // resizer runs at a time. Without this, two simultaneous resizers both set
-                // hack=true, both background threads skip the semaphore decrement, and
-                // neither sees the count reach zero (Bug 3 livelock).
-                //
-                // The second resizer blocks here (hack=false), so its background thread
-                // responds normally to unload_event and decrements the semaphore, letting
-                // the first resizer proceed. WAIT_ABANDONED_0 (0x80) means the prior holder
-                // crashed mid-resize; we still own the mutex and should proceed.
-                const wait_result = windows.WaitForSingleObject(self.mmap_context.resize_mutex, INFINITE);
-                if (wait_result != WAIT_OBJECT_0 and wait_result != WAIT_ABANDONED_0) {
-                    alloc.fmt_panic("Failed to acquire resize mutex: {}", .{wait_result});
-                }
-                defer _ = windows.ReleaseMutex(self.mmap_context.resize_mutex);
-
-                const new_size = initial_size + self.map.len * 2 * @sizeOf(lego_trie.TrieBlock);
-
-                ensure_other_processes_have_released_handle(self.mmap_context);
-                BackingData.open_map(new_size, self.mmap_context);
-
-                // Flush before signaling other processes
-                // FlushViewOfFile provides memory barrier semantics for cross-process visibility
-                if (windows.FlushViewOfFile(self.mmap_context.backing_data.map_view_pointer, 0) == 0) {
-                    const last_error = windows.GetLastError();
-                    alloc.fmt_panic("FlushViewOfFile failed: Error {}", .{last_error});
-                }
-
-                signal_other_processes_can_reaquire_handle(self.mmap_context);
-            }
+            _ = windows.WaitForSingleObject(self.mmap_context.write_mutex, INFINITE);
+            defer _ = windows.ReleaseMutex(self.mmap_context.write_mutex);
 
             const len_val = self.len.load(.monotonic);
+            if (len_val >= self.map.len) {
+                @panic("trie full: 16MB mapping exhausted");
+            }
             self.map[len_val] = x;
             // Release semantics ensures the write to map[len_val] is visible before len increment
             self.len.store(len_val + 1, .release);
@@ -477,133 +261,3 @@ pub fn DumbList(comptime T: type) type {
     };
 }
 
-pub fn ensure_other_processes_have_released_handle(mmap_context: *MMapContext) void {
-    log.log_debug("Ensuring exclusive control...\n", .{});
-
-    mmap_context.hack_we_are_the_process_requesting_an_unload.store(true, .release);
-
-    if (windows.ResetEvent(mmap_context.reload_event) == 0) {
-        const last_error = windows.GetLastError();
-        alloc.fmt_panic("Failed to reset event '{s}'. Error {}", .{ reload_event_name, last_error });
-    }
-
-    // Signal to others they should begin unloading
-    if (windows.SetEvent(mmap_context.unload_event) == 0) {
-        const last_error = windows.GetLastError();
-        alloc.fmt_panic("Failed to set event '{s}'. Error {}", .{ unload_event_name, last_error });
-    }
-
-    // @Cleanup is there a better way of doing this?
-    var spin_count: u32 = 0;
-    while (true) {
-        //const WAIT_OBJECT_0 = 0x00000000L;
-        //if (windows.WaitForSingleObject(g_cross_process_semaphore, INFINITE) == 0) {
-        //    var last_error = windows.GetLastError();
-        //    alloc.fmt_panic("Spinny loopy acquire semaphore error, GetLastError {}", .{last_error});
-        //}
-
-        log.log_debug("Acquiring semaphore...\n", .{});
-        _ = windows.WaitForSingleObject(mmap_context.cross_process_semaphore, INFINITE);
-
-        var prev_count: i32 = -1;
-        if (windows.ReleaseSemaphore(mmap_context.cross_process_semaphore, 1, &prev_count) == 0) {
-            const last_error = windows.GetLastError();
-            alloc.fmt_panic("Failed to release semaphore, Error {}", .{last_error});
-        }
-
-        log.log_debug("Got semaphore, prev count {}\n", .{prev_count});
-        if (prev_count == 0) {
-            // Everyone apart from us has released
-            // So we are good to go
-            break;
-        } else {
-            // Someone else is still holding the semaphore, continue to wait
-            // 1ms
-            windows.Sleep(1);
-            spin_count += 1;
-            if (spin_count > 30_000) {
-                alloc.fmt_panic(
-                    "Deadlock: two processes appear to be resizing the trie simultaneously. " ++
-                    "This is a known protocol limitation.", .{});
-            }
-        }
-    }
-}
-
-pub fn signal_other_processes_can_reaquire_handle(mmap_context: *MMapContext) void {
-    mmap_context.hack_we_are_the_process_requesting_an_unload.store(false, .release);
-
-    if (windows.ResetEvent(mmap_context.unload_event) == 0) {
-        const last_error = windows.GetLastError();
-        alloc.fmt_panic("Failed to reset event '{s}'. Error {}", .{ unload_event_name, last_error });
-    }
-
-    if (windows.SetEvent(mmap_context.reload_event) == 0) {
-        const last_error = windows.GetLastError();
-        alloc.fmt_panic("Failed to set event '{s}'. Error {}", .{ reload_event_name, last_error });
-    }
-}
-
-pub fn background_unloader_loop(mmap_context: *MMapContext) void {
-    log.log_debug("[Background Unloader] Initialized\n", .{});
-    log.log_debug("[Background Unloader] Waiting for {s}\n", .{unload_event_name});
-    while (true) {
-        _ = windows.WaitForSingleObject(mmap_context.unload_event, INFINITE);
-
-        if (mmap_context.hack_we_are_the_process_requesting_an_unload.load(.acquire)) {
-            // @Reliability race conditions here?
-            //log.log_debug("[Background Unloader] It is us requesting an unload! Skipping", .{});
-
-            // @Hack sleep here to avoid churn
-            // 10ms
-            windows.Sleep(10);
-            continue;
-        }
-
-        // Wait for signal
-        log.log_debug("[Background Unloader] Event signaled!\n", .{});
-
-        log.log_debug("[Background Unloader] Acquiring local mutex...\n", .{});
-        mmap_context.data_mutex.lockUncancelable(alloc.g_io);
-        // Now locally safe to unload
-
-        log.log_debug("Unloading file...\n", .{});
-        if (mmap_context.backing_data.map_pointer) |map_ptr| {
-            std.os.windows.CloseHandle(map_ptr);
-            mmap_context.backing_data.map_pointer = null;
-        }
-
-        // Signify we no longer have the file open
-        log.log_debug("[Background Unloader] Acquiring semaphore...\n", .{});
-        _ = windows.WaitForSingleObject(mmap_context.cross_process_semaphore, INFINITE);
-
-        // ...
-
-        log.log_debug("Waiting until its safe to reload...\n", .{});
-        const reload_result = windows.WaitForSingleObject(mmap_context.reload_event, RELOAD_TIMEOUT_MS);
-        if (reload_result == windows.WAIT_TIMEOUT) {
-            // The process that set unload_event likely crashed before calling
-            // signal_other_processes_can_reaquire_handle. Recover: re-open map
-            // with current on-disk state and release the semaphore we decremented above.
-            log.log_info("[Background Unloader] Timed out waiting for reload_event; recovering\n", .{});
-            var prev: i32 = -1;
-            _ = windows.ReleaseSemaphore(mmap_context.cross_process_semaphore, 1, &prev);
-            BackingData.open_map(null, mmap_context);
-            mmap_context.data_mutex.unlock(alloc.g_io);
-            continue;
-        }
-
-        // Increment semaphore to signify we are reading the file
-        var prev_semaphore_count: i32 = -1;
-        if (windows.ReleaseSemaphore(mmap_context.cross_process_semaphore, 1, &prev_semaphore_count) == 0) {
-            const last_error = windows.GetLastError();
-            alloc.fmt_panic("Failed to release semaphore, Error {}", .{last_error});
-        }
-
-        log.log_debug("[Background Unloader] Released semaphore, prev count {}\n", .{prev_semaphore_count});
-
-        BackingData.open_map(null, mmap_context);
-
-        mmap_context.data_mutex.unlock(alloc.g_io);
-    }
-}

@@ -32,7 +32,8 @@ pub const Shell = struct {
         };
     }
 
-    pub fn apply_input(self: *Shell, in: input.Input) void {
+    /// Returns true if the shell should exit.
+    pub fn apply_input(self: *Shell, in: input.Input) bool {
         if (Command.try_get_from_input(in)) |command| {
             switch (command) {
                 .Run => {
@@ -42,6 +43,8 @@ pub const Shell = struct {
                     std.debug.print("\n", .{});
 
                     var run_result = run.run(cmd);
+
+                    if (run_result.exit) return true;
 
                     self.history.push(cmd);
 
@@ -197,6 +200,7 @@ pub const Shell = struct {
         }
 
         self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items, next_completion_flags);
+        return false;
     }
 
     pub fn draw(self: *Shell) void {

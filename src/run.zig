@@ -44,11 +44,11 @@ pub const FroggyCommand = union(enum) {
                 return run_cmd("cls");
             },
             .Exit => {
-                windows.write_console("Goodbye");
+                windows.write_console("Goodbye\n");
 
-                // TODO reset the console state to what it was before
-                std.process.exit(0);
-                unreachable;
+                // Return with exit flag so main loop can clean up properly
+                // (flush trie, release semaphore) before exiting.
+                return .{ .exit = true };
             },
         }
     }
@@ -184,4 +184,5 @@ pub fn try_interupt_running_process() bool {
 
 pub const RunResult = struct {
     add_to_history: bool = true,
+    exit: bool = false,
 };
