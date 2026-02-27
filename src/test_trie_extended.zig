@@ -689,3 +689,139 @@ test "case sensitivity" {
     // Validate structure
     try TestHelpers.validate_trie_structure(&trie);
 }
+
+// ============================================================================
+// Insertion Code Path Coverage
+// ============================================================================
+
+test "insert prefix of existing leaf - triggers split with empty recurse_key" {
+    // Exercises try_insert_along's `recurse_key.len == 0` early return.
+    // Insert "testing" as a leaf, then "test" — the split produces "test" + "ing"
+    // with nothing left to recurse on for the second insert.
+    var backing: [512]lego_trie.TrieBlock = undefined;
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
+
+    var view = trie.to_view();
+    try view.insert("testing");
+    view = trie.to_view();
+    try view.insert("test");
+
+    // Both the full string and the prefix must be findable
+    try TestHelpers.validate_can_find(&trie, "testing");
+    try TestHelpers.validate_can_find(&trie, "test");
+
+    // "test" should be an exact match (no extension)
+    var walker = lego_trie.TrieWalker.init(trie.to_view(), "test");
+    try std.testing.expect(walker.walk_to());
+    try std.testing.expectEqual(@as(usize, 4), walker.char_id);
+
+    // "testing" should still resolve fully
+    walker = lego_trie.TrieWalker.init(trie.to_view(), "testing");
+    try std.testing.expect(walker.walk_to());
+    try std.testing.expectEqual(@as(usize, 7), walker.char_id);
+
+    try TestHelpers.validate_trie_structure(&trie);
+}
+
+test "insert prefix of existing leaf - multiple depths" {
+    // Same pattern but at various depths to stress the split logic.
+    var backing: [1024]lego_trie.TrieBlock = undefined;
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
+
+    // Insert long strings first, then their prefixes
+    const pairs = [_][2][]const u8{
+        .{ "application", "app" },
+        .{ "configuration", "config" },
+        .{ "development", "dev" },
+        .{ "git status --verbose", "git status" },
+        .{ "git status", "git" },
+    };
+
+    for (pairs) |pair| {
+        var view = trie.to_view();
+        try view.insert(pair[0]);
+        view = trie.to_view();
+        try view.insert(pair[1]);
+    }
+
+    // All strings (both full and prefix) must be findable
+    for (pairs) |pair| {
+        try TestHelpers.validate_can_find(&trie, pair[0]);
+        try TestHelpers.validate_can_find(&trie, pair[1]);
+    }
+
+    try TestHelpers.validate_trie_structure(&trie);
+}
+
+test "reinsert interior node string - common_len == child_slice.len with non-leaf" {
+    // After "abc" and "abd" are inserted, "ab" becomes an interior node.
+    // Reinserting "ab" should follow the existing interior node path and
+    // hit the recurse_key.len == 0 return in the non-leaf branch.
+    var backing: [512]lego_trie.TrieBlock = undefined;
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
+
+    var view = trie.to_view();
+    try view.insert("abc");
+    view = trie.to_view();
+    try view.insert("abd");
+    view = trie.to_view();
+    try view.insert("ab");
+
+    try TestHelpers.validate_can_find(&trie, "abc");
+    try TestHelpers.validate_can_find(&trie, "abd");
+    try TestHelpers.validate_can_find(&trie, "ab");
+
+    // Insert "ab" again — should not corrupt anything
+    view = trie.to_view();
+    try view.insert("ab");
+
+    try TestHelpers.validate_can_find(&trie, "abc");
+    try TestHelpers.validate_can_find(&trie, "abd");
+    try TestHelpers.validate_can_find(&trie, "ab");
+
+    try TestHelpers.validate_trie_structure(&trie);
+}
+
+test "sort correctness across sibling chain boundaries" {
+    // Insert enough strings with distinct first chars to force multiple wide sibling
+    // blocks at the root (WideNodeLen=4, so 9+ strings = 3 blocks). Then reinsert
+    // the last string many times so its cost drops, and verify that after sorting
+    // it appears as the first child in iteration order.
+    var backing: [64]lego_trie.TrieBlock = undefined;
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
+
+    const strings = [_][]const u8{ "aa", "bb", "cc", "dd", "ee", "ff", "gg", "hh", "ii" };
+
+    // Insert each once
+    for (strings) |s| {
+        var view = trie.to_view();
+        try view.insert(s);
+    }
+
+    // Reinsert "ii" many times to make it lowest-cost (highest priority)
+    var i: usize = 0;
+    while (i < 20) : (i += 1) {
+        var view = trie.to_view();
+        try view.insert("ii");
+    }
+
+    // All strings still findable after sorting
+    try TestHelpers.validate_all_can_find(&trie, &strings);
+
+    // The first child in iteration order should be "ii" (lowest cost = highest priority)
+    const root = trie.blocks.at(0);
+    var iter = lego_trie.ChildIterator{ .block = root, .trie = &trie };
+    try std.testing.expect(iter.next());
+    const first_str = if (root.metadata.wide)
+        root.node_data.wide.nodes[iter.i.?].slice()
+    else
+        root.node_data.tall.nodes[iter.i.?].slice();
+
+    try std.testing.expectEqualStrings("i", first_str);
+
+    try TestHelpers.validate_trie_structure(&trie);
+}
