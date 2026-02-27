@@ -47,19 +47,21 @@ pub const CompletionHandler = struct {
 
         var cycle = self.cycle_index;
 
-        if (self.local_history.get_completion(prefix, flags)) |completion| {
-            if (cycle == 0) {
-                return completion;
-            } else {
-                cycle -|= 1;
+        if (!flags.complete_to_directories_not_files) {
+            if (self.local_history.get_completion(prefix, flags)) |completion| {
+                if (cycle == 0) {
+                    return completion;
+                } else {
+                    cycle -|= 1;
+                }
             }
-        }
 
-        if (self.global_history.get_completion(prefix, flags)) |completion| {
-            if (cycle == 0) {
-                return completion;
-            } else {
-                cycle -|= 1;
+            if (self.global_history.get_completion(prefix, flags)) |completion| {
+                if (cycle == 0) {
+                    return completion;
+                } else {
+                    cycle -|= 1;
+                }
             }
         }
 

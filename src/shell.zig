@@ -22,6 +22,19 @@ pub const Shell = struct {
     completion_handler: CompletionHandler,
     current_completion: ?[]const u8 = null,
 
+    fn get_completion_flags(self: *Shell) completion_lib.GetCompletionFlags {
+        var flags = completion_lib.GetCompletionFlags{};
+        if (run.FroggyCommand.try_get_froggy_command(self.prompt.bs.items)) |froggy| {
+            switch (froggy) {
+                .Cd => {
+                    flags.complete_to_directories_not_files = true;
+                },
+                else => {},
+            }
+        }
+        return flags;
+    }
+
     pub fn init(trie_blocks: *data.MappedArray(lego_trie.TrieBlock)) Shell {
         return .{
             .prompt = Prompt.init(),
@@ -110,7 +123,9 @@ pub const Shell = struct {
                                 self.completion_handler.cycle_index += 1;
                             }
 
-                            self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items[0..pos.byte_index], .{ .complete_to_files_from_empty_prefix = true });
+                            var flags = self.get_completion_flags();
+                            flags.complete_to_files_from_empty_prefix = true;
+                            self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items[0..pos.byte_index], flags);
 
                             // Bit ugly, if we've gone too far, back up
                             if ((self.current_completion == null or self.current_completion.?.len == 0) and !reverse) {
@@ -127,7 +142,9 @@ pub const Shell = struct {
                                 alloc.gpa.allocator().free(cc);
                             }
 
-                            self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items, .{ .complete_to_files_from_empty_prefix = true });
+                            var flags = self.get_completion_flags();
+                            flags.complete_to_files_from_empty_prefix = true;
+                            self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items, flags);
                         }
                     }
 
@@ -189,17 +206,7 @@ pub const Shell = struct {
             alloc.gpa.allocator().free(cc);
         }
 
-        var next_completion_flags = completion_lib.GetCompletionFlags{};
-        if (run.FroggyCommand.try_get_froggy_command(self.prompt.bs.items)) |froggy| {
-            switch (froggy) {
-                .Cd => {
-                    next_completion_flags.complete_to_directories_not_files = true;
-                },
-                else => {},
-            }
-        }
-
-        self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items, next_completion_flags);
+        self.current_completion = self.completion_handler.get_completion(self.prompt.bs.items, self.get_completion_flags());
         return false;
     }
 
