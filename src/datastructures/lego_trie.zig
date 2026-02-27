@@ -82,8 +82,6 @@ pub const TrieBlock = struct {
 
     fn insert_prefix(self: *TrieBlock, trie: *Trie, key: []const u8) void {
         const node_count = self.get_node_count();
-        const string_size = self.get_string_size();
-        _ = string_size;
 
         if (self.metadata.wide) {
             if (self.node_data.wide.try_insert_along(trie, key)) {
@@ -467,10 +465,6 @@ pub const TrieWalker = struct {
             .trie_view = view,
             .prefix = prefix,
         };
-    }
-
-    pub fn walk_trivial(self: *TrieWalker) void {
-        _ = self;
     }
 
     pub fn walk_to_heuristic(self: *TrieWalker, allocator: std.mem.Allocator, p_cost: u16) []const u8 {

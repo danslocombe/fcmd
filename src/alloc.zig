@@ -14,11 +14,6 @@ pub fn gpa_alloc_idk(comptime T: type, n: usize) []T {
     return gpa.allocator().alloc(T, n) catch unreachable;
 }
 
-pub fn gpa_new_idk(comptime T: type) *T {
-    var array = gpa_alloc_idk(T, 1);
-    return &array[0];
-}
-
 pub fn new_arraylist(comptime T: type) std.ArrayList(T) {
     return .{};
 }
