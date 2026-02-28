@@ -95,8 +95,11 @@ pub const DirectoryCompleter = struct {
         is_dir: bool,
     };
 
+    pub const FileLister = *const fn (rel_dir: []const u8) ?std.ArrayList(FileInfo);
+
     rel_dir: ?[]const u8 = null,
     files: ?std.ArrayList(FileInfo) = null,
+    file_lister: ?FileLister = null,
 
     pub fn clear(self: *DirectoryCompleter) void {
         if (self.rel_dir) |rd| {
@@ -128,6 +131,11 @@ pub const DirectoryCompleter = struct {
         }
 
         self.rel_dir = alloc.copy_slice_to_gpa(rel_dir);
+
+        if (self.file_lister) |lister| {
+            self.files = lister(rel_dir);
+            return;
+        }
 
         //std.debug.print("Regenerating DirectoryCompleter at '{s}'...\n", .{rel_dir});
 

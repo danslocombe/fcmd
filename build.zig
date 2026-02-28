@@ -59,6 +59,18 @@ pub fn build(b: *std.Build) void {
     extended_tests.root_module.link_libc = true;
     const run_extended_tests = b.addRunArtifact(extended_tests);
 
+    // Behavioral tests (mocked filesystem, end-to-end completion scenarios)
+    const behavioral_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/test_behavioral.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    behavioral_tests.root_module.link_libc = true;
+    const run_behavioral_tests = b.addRunArtifact(behavioral_tests);
+    run_behavioral_tests.step.dependOn(&run_extended_tests.step);
+
     // Multi-process scenario tests
     const multiprocess_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -76,7 +88,7 @@ pub fn build(b: *std.Build) void {
     // Run tests sequentially to avoid Zig 0.16.0-dev IPC hangs under parallel execution
     run_basic_tests.step.dependOn(&run_unit_tests.step);
     run_extended_tests.step.dependOn(&run_basic_tests.step);
-    run_multiprocess_tests.step.dependOn(&run_extended_tests.step);
+    run_multiprocess_tests.step.dependOn(&run_behavioral_tests.step);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_multiprocess_tests.step);
@@ -87,6 +99,9 @@ pub fn build(b: *std.Build) void {
 
     const test_extended_step = b.step("test-extended", "Run extended trie tests");
     test_extended_step.dependOn(&run_extended_tests.step);
+
+    const test_behavioral_step = b.step("test-behavioral", "Run behavioral tests");
+    test_behavioral_step.dependOn(&run_behavioral_tests.step);
 
     const test_multiprocess_step = b.step("test-multiprocess", "Run multi-process tests");
     test_multiprocess_step.dependOn(&run_multiprocess_tests.step);
