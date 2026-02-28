@@ -139,9 +139,15 @@ pub const DirectoryCompleter = struct {
 
         //std.debug.print("Regenerating DirectoryCompleter at '{s}'...\n", .{rel_dir});
 
-        // TODO handle absolute paths
+        // Bare drive letters like "C:" resolve to "current directory on C:",
+        // not the root.  Append "\" so the OS opens the drive root instead.
+        var open_path: []const u8 = rel_dir;
+        if (rel_dir.len == 2 and rel_dir[1] == ':' and std.ascii.isAlphabetic(rel_dir[0])) {
+            open_path = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "{s}\\", .{rel_dir}) catch unreachable;
+        }
+
         const cwd = std.Io.Dir.cwd();
-        const dir = std.Io.Dir.openDir(cwd, alloc.g_io, rel_dir, .{ .iterate = true }) catch return;
+        const dir = std.Io.Dir.openDir(cwd, alloc.g_io, open_path, .{ .iterate = true }) catch return;
         defer dir.close(alloc.g_io);
 
         self.files = alloc.new_arraylist(FileInfo);

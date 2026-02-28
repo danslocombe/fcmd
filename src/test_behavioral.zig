@@ -59,13 +59,16 @@ const MockFS = struct {
                 if (dir.path.len == 0) {
                     if (std.mem.eql(u8, path, entry.name)) return true;
                 } else {
-                    // Build "dir.path/entry.name" and compare.
-                    const full = std.mem.concat(
-                        alloc.temp_alloc.allocator(),
-                        u8,
-                        &.{ dir.path, "/", entry.name },
-                    ) catch continue;
-                    if (std.mem.eql(u8, path, full)) return true;
+                    // Try both separator styles so that absolute paths
+                    // like "C:\Users" match dirs registered as "C:".
+                    for ([_][]const u8{ "/", "\\" }) |sep| {
+                        const full = std.mem.concat(
+                            alloc.temp_alloc.allocator(),
+                            u8,
+                            &.{ dir.path, sep, entry.name },
+                        ) catch continue;
+                        if (std.mem.eql(u8, path, full)) return true;
+                    }
                 }
             }
         }
@@ -311,4 +314,47 @@ test "subdirectory path completion" {
     try expectCompletion(&bt, "cd src/", cd_flag, 0, "lib");
     try expectCompletion(&bt, "cd src/", cd_flag, 1, "tests");
     try expectNoCompletion(&bt, "cd src/", cd_flag, 2);
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: Absolute path completion (cd C:\Us → cd C:\Users)
+// ---------------------------------------------------------------------------
+
+test "cd completes absolute paths" {
+    var bt: BehavioralTest = undefined;
+    init_behavioral_test(&bt);
+
+    // MockFS: "C:" drive root has Users(dir), Windows(dir), pagefile.sys(file)
+    const drive = MockFS.addDir(&global_mock_fs, "C:");
+    MockFS.addEntry(drive, "Users", true);
+    MockFS.addEntry(drive, "Windows", true);
+    MockFS.addEntry(drive, "pagefile.sys", false);
+
+    // "cd C:\Us" → last_word "C:\Us", path "C:", prefix "Us"
+    // regenerate("C:") opens "C:\" (bare drive fix), lists root.
+    // pagefile.sys skipped (file). "Users" matches prefix "Us".
+    try expectCompletion(&bt, "cd C:\\Us", cd_flag, 0, "ers");
+    try expectCompletion(&bt, "cd C:\\W", cd_flag, 0, "indows");
+    try expectNoCompletion(&bt, "cd C:\\Z", cd_flag, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: Absolute path with history validation
+// ---------------------------------------------------------------------------
+
+test "cd absolute path history validated" {
+    var bt: BehavioralTest = undefined;
+    init_behavioral_test(&bt);
+
+    // MockFS: "C:" drive root has Users(dir)
+    const drive = MockFS.addDir(&global_mock_fs, "C:");
+    MockFS.addEntry(drive, "Users", true);
+
+    // History has "cd C:\Users" — validator should confirm it exists.
+    simulateCommand(&bt, "cd C:\\Users");
+
+    // cycle 0 from history (validated), cycle 1 from dir completer.
+    try expectCompletion(&bt, "cd C:\\Us", cd_flag, 0, "ers");
+    try expectCompletion(&bt, "cd C:\\Us", cd_flag, 1, "ers"); // dir completer
+    try expectNoCompletion(&bt, "cd C:\\Us", cd_flag, 2);
 }
