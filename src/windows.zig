@@ -58,6 +58,7 @@ pub const GetCurrentProcessId = import.GetCurrentProcessId;
 pub const LARGE_INTEGER = import.LARGE_INTEGER;
 pub const CreateMutexA = import.CreateMutexA;
 pub const ReleaseMutex = import.ReleaseMutex;
+pub const GetConsoleScreenBufferInfo = import.GetConsoleScreenBufferInfo;
 
 // Types and constants no longer in std.os.windows
 pub const PROCESS_INFORMATION = extern struct {
@@ -144,6 +145,15 @@ pub fn get_appdata_path() []const u8 {
     var buffer: [256]u16 = undefined;
     const len = import.GetEnvironmentVariableW(appdata_literal, &buffer, 256);
     return std.unicode.utf16LeToUtf8Alloc(alloc.gpa.allocator(), buffer[0..len]) catch unreachable;
+}
+
+pub fn get_console_width() usize {
+    var info: import.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+    if (import.GetConsoleScreenBufferInfo(g_stdout, &info) != 0) {
+        const width = info.srWindow.Right - info.srWindow.Left + 1;
+        if (width > 0) return @intCast(width);
+    }
+    return 80;
 }
 
 pub fn write_console(cs: []const u8) void {

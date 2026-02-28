@@ -106,6 +106,19 @@ pub fn build(b: *std.Build) void {
     const test_multiprocess_step = b.step("test-multiprocess", "Run multi-process tests");
     test_multiprocess_step.dependOn(&run_multiprocess_tests.step);
 
+    // Render tests (pure computation, no libc needed)
+    const render_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/render.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_render_tests = b.addRunArtifact(render_tests);
+
+    const test_render_step = b.step("test-render", "Run render tests");
+    test_render_step.dependOn(&run_render_tests.step);
+
     const exe_check = b.addExecutable(.{
         .name = "bounce",
         .root_module = b.createModule(.{

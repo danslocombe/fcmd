@@ -10,6 +10,7 @@ const CompletionHandler = completion_lib.CompletionHandler;
 const data = @import("data.zig");
 const windows = @import("windows.zig");
 const preprompt = @import("preprompt.zig");
+const render = @import("render.zig");
 
 const ring_buffer = @import("datastructures/ring_buffer.zig");
 const lego_trie = @import("datastructures/lego_trie.zig");
@@ -17,6 +18,7 @@ const lego_trie = @import("datastructures/lego_trie.zig");
 pub const Shell = struct {
     prompt: Prompt,
     partial_complete_prev_cursor_pos: ?PromptCursorPos = null,
+    prev_cursor_row: usize = 0,
 
     history: History,
     completion_handler: CompletionHandler,
@@ -54,6 +56,7 @@ pub const Shell = struct {
 
                     // @TODO Handle this nicely
                     std.debug.print("\n", .{});
+                    self.prev_cursor_row = 0;
 
                     var run_result = run.run(cmd);
 
@@ -189,6 +192,7 @@ pub const Shell = struct {
                     // We love hackin'
                     var cls = run.FroggyCommand{ .Cls = void{} };
                     _ = cls.execute();
+                    self.prev_cursor_row = 0;
                 },
                 else => {
                     // TODO
@@ -211,15 +215,11 @@ pub const Shell = struct {
     }
 
     pub fn draw(self: *Shell) void {
-        const set_cursor_x_to_zero = "\x1b[0G";
-        const clear_to_end_of_line = "\x1b[K";
-
-        const clear_commands = comptime std.fmt.comptimePrint("{s}{s}", .{ set_cursor_x_to_zero, clear_to_end_of_line });
-
         var built_preprompt = preprompt.build_preprompt();
         defer (alloc.gpa.allocator().free(built_preprompt));
 
         var prompt_buffer: []const u8 = self.prompt.bs.items;
+        const prompt_visual_width = self.prompt.char_len();
         if (self.prompt.highlight) |highlight| {
             const before_highlight = prompt_buffer[0..highlight.start_pos.byte_index];
             const highlighted = prompt_buffer[highlight.start_pos.byte_index..highlight.end_pos.byte_index];
@@ -227,28 +227,27 @@ pub const Shell = struct {
             prompt_buffer = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "{s}\x1b[42m{s}\x1b[0m{s}", .{ before_highlight, highlighted, after_highlight }) catch unreachable;
         }
 
-        var completion_command: []const u8 = "";
+        var completion_styled: []const u8 = "";
+        var completion_visual_width: usize = 0;
         if (self.current_completion) |completion| {
-            // Magenta: 35
-            // Red: 31
-            // Cyan: 36
-            completion_command = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[1m\x1b[36m{s}\x1b[0m", .{completion}) catch unreachable;
+            completion_styled = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[1m\x1b[36m{s}\x1b[0m", .{completion}) catch unreachable;
+            completion_visual_width = completion.len;
         }
 
-        // TODO handle setting cursor y pos.
-        const cursor_x_pos = built_preprompt.len + self.prompt.pos.x + 1;
-        const set_cursor_to_prompt_pos = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[{}G", .{cursor_x_pos}) catch unreachable;
-
-        var commands = [_][]const u8{
-            clear_commands,
+        const result = render.compute_render(
+            alloc.temp_alloc.allocator(),
+            windows.get_console_width(),
             built_preprompt,
             prompt_buffer,
-            completion_command,
-            set_cursor_to_prompt_pos,
-        };
-
-        const buffer = std.mem.concat(alloc.temp_alloc.allocator(), u8, &commands) catch unreachable;
-        windows.write_console(buffer);
+            prompt_visual_width,
+            completion_styled,
+            completion_visual_width,
+            self.prompt.pos.x,
+            built_preprompt.len,
+            self.prev_cursor_row,
+        );
+        windows.write_console(result.buffer);
+        self.prev_cursor_row = result.cursor_row;
     }
 };
 
