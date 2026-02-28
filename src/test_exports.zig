@@ -12,3 +12,4 @@ pub const data = @import("data.zig");
 pub const alloc = @import("alloc.zig");
 pub const log = @import("log.zig");
 pub const windows = @import("windows.zig");
+pub const completion = @import("completion.zig");

@@ -80,6 +80,44 @@ pub const TrieBlock = struct {
         return self.node_data.tall.get_child(key);
     }
 
+    pub const ChildInfo = struct {
+        str: []const u8,
+        cost: u16,
+        data: NodeDataWithIsLeaf,
+    };
+
+    /// Returns the Nth child (0-indexed) across this block and its sibling chain.
+    /// Children are sorted by cost (index 0 = lowest cost = most used).
+    pub fn get_child_at_index(self: *TrieBlock, trie: *Trie, index: usize) ?ChildInfo {
+        var current: *TrieBlock = self;
+        var remaining = index;
+
+        while (true) {
+            const child_size = current.get_child_size();
+            if (remaining < child_size) {
+                if (current.metadata.wide) {
+                    return .{
+                        .str = current.node_data.wide.nodes[remaining].slice(),
+                        .cost = current.node_data.wide.costs[remaining],
+                        .data = current.node_data.wide.data[remaining],
+                    };
+                } else {
+                    return .{
+                        .str = current.node_data.tall.nodes[remaining].slice(),
+                        .cost = current.node_data.tall.costs[remaining],
+                        .data = current.node_data.tall.data[remaining],
+                    };
+                }
+            }
+            remaining -= child_size;
+            if (current.metadata.next > 0) {
+                current = trie.blocks.at(@intCast(current.metadata.next));
+            } else {
+                return null;
+            }
+        }
+    }
+
     fn insert_prefix(self: *TrieBlock, trie: *Trie, key: []const u8) void {
         const node_count = self.get_node_count();
 
@@ -560,6 +598,100 @@ pub const TrieWalker = struct {
     }
 };
 
+/// DFS backtracking iterator that yields complete paths from a subtree root
+/// to leaves, in depth-first cost-ordered traversal.
+pub const SubtreeIterator = struct {
+    trie: *Trie,
+    root_block: u30,
+    stack: [64]PathEntry = undefined,
+    stack_len: usize = 0,
+    started: bool = false,
+    exhausted: bool = false,
+
+    const PathEntry = struct {
+        block_id: u30,
+        child_index: u8,
+    };
+
+    /// Returns the next complete path from the subtree, or null when exhausted.
+    /// Results are allocated with the provided allocator.
+    pub fn next(self: *SubtreeIterator, allocator: std.mem.Allocator) ?[]const u8 {
+        if (self.exhausted) return null;
+
+        if (!self.started) {
+            self.started = true;
+            if (self.walk_down(self.root_block, 0)) {
+                return self.build_result(allocator);
+            }
+            self.exhausted = true;
+            return null;
+        }
+
+        // Backtrack: pop stack entries and try next sibling at each level
+        while (self.stack_len > 0) {
+            self.stack_len -= 1;
+            const entry = self.stack[self.stack_len];
+            const next_index: usize = @as(usize, entry.child_index) + 1;
+            var block = self.trie.blocks.at(@intCast(entry.block_id));
+            if (block.get_child_at_index(self.trie, next_index) != null) {
+                const saved_stack_len = self.stack_len;
+                if (self.walk_down(entry.block_id, @intCast(next_index))) {
+                    return self.build_result(allocator);
+                }
+                // Restore stack if walk_down failed (dead end in trie)
+                self.stack_len = saved_stack_len;
+            }
+        }
+
+        self.exhausted = true;
+        return null;
+    }
+
+    /// Greedily descend from block_id at start_index, following index-0 children
+    /// until a leaf is reached. Pushes each step onto the stack.
+    fn walk_down(self: *SubtreeIterator, block_id: u30, start_index: usize) bool {
+        var current_block_id = block_id;
+        var current_index = start_index;
+
+        while (true) {
+            var block = self.trie.blocks.at(@intCast(current_block_id));
+            const child = block.get_child_at_index(self.trie, current_index) orelse return false;
+
+            if (self.stack_len >= self.stack.len) return false; // stack overflow protection
+
+            self.stack[self.stack_len] = .{
+                .block_id = current_block_id,
+                .child_index = @intCast(current_index),
+            };
+            self.stack_len += 1;
+
+            if (child.data.is_leaf) {
+                return true;
+            }
+
+            current_block_id = child.data.data;
+            current_index = 0;
+        }
+    }
+
+    /// Build the result string by concatenating edge strings from all stack entries.
+    fn build_result(self: *SubtreeIterator, allocator: std.mem.Allocator) ?[]const u8 {
+        var components = std.ArrayList([]const u8){};
+        for (self.stack[0..self.stack_len]) |entry| {
+            var block = self.trie.blocks.at(@intCast(entry.block_id));
+            if (block.get_child_at_index(self.trie, entry.child_index)) |child| {
+                if (child.str.len > 0) {
+                    components.append(allocator, child.str) catch return null;
+                }
+            }
+        }
+        if (components.items.len == 0) {
+            return "";
+        }
+        return std.mem.concat(allocator, u8, components.items) catch null;
+    }
+};
+
 pub const Trie = struct {
     blocks: *data_lib.MappedArray(TrieBlock),
 
@@ -898,4 +1030,253 @@ test "promote tall to wide" {
 
     walker = view.walker("GLOBAL_ccc");
     try std.testing.expect(walker.walk_to());
+}
+
+test "get_child_at_index - basic" {
+    var backing: [64]TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    var trie = Trie.init(&blocks);
+    var view = trie.to_view();
+
+    try view.insert("abc");
+    try view.insert("abd");
+
+    // After insert: root has "ab" edge -> block with "c" and "d"
+    var walker = TrieWalker.init(view, "ab");
+    try std.testing.expect(walker.walk_to());
+
+    var block = trie.blocks.at(walker.trie_view.current_block);
+    const c0 = block.get_child_at_index(&trie, 0).?;
+    const c1 = block.get_child_at_index(&trie, 1).?;
+    try std.testing.expect(block.get_child_at_index(&trie, 2) == null);
+
+    // Both "c" and "d" should be present (may or may not be direct leaves
+    // due to WideStringLen=1 causing intermediate nodes for some insertions)
+    const has_c = std.mem.eql(u8, c0.str, "c") or std.mem.eql(u8, c1.str, "c");
+    const has_d = std.mem.eql(u8, c0.str, "d") or std.mem.eql(u8, c1.str, "d");
+    try std.testing.expect(has_c);
+    try std.testing.expect(has_d);
+    try std.testing.expect(c0.data.exists);
+    try std.testing.expect(c1.data.exists);
+}
+
+test "get_child_at_index - spillover" {
+    var backing: [128]TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    var trie = Trie.init(&blocks);
+    var view = trie.to_view();
+
+    // Insert 6 strings with shared prefix "x" to force sibling chain
+    try view.insert("xa");
+    try view.insert("xb");
+    try view.insert("xc");
+    try view.insert("xd");
+    try view.insert("xe");
+    try view.insert("xf");
+
+    var walker = TrieWalker.init(view, "x");
+    try std.testing.expect(walker.walk_to());
+
+    var block = trie.blocks.at(walker.trie_view.current_block);
+
+    // Should be able to get all 6 children across sibling chain
+    var found: [6]bool = .{ false, false, false, false, false, false };
+    const expected = "abcdef";
+    for (0..6) |i| {
+        const child = block.get_child_at_index(&trie, i).?;
+        for (expected, 0..) |ch, j| {
+            if (child.str.len == 1 and child.str[0] == ch) {
+                found[j] = true;
+            }
+        }
+    }
+    try std.testing.expect(block.get_child_at_index(&trie, 6) == null);
+    for (found) |f| {
+        try std.testing.expect(f);
+    }
+}
+
+test "subtree iter - two branches" {
+    var backing: [64]TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    var trie = Trie.init(&blocks);
+    var view = trie.to_view();
+
+    try view.insert("abc");
+    try view.insert("abd");
+
+    // Walk to "ab" to reach subtree root
+    var walker = TrieWalker.init(view, "ab");
+    try std.testing.expect(walker.walk_to());
+    try std.testing.expect(!walker.reached_leaf);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var iter = SubtreeIterator{
+        .trie = &trie,
+        .root_block = @intCast(walker.trie_view.current_block),
+    };
+
+    const r1 = iter.next(arena.allocator()).?;
+    const r2 = iter.next(arena.allocator()).?;
+    try std.testing.expect(iter.next(arena.allocator()) == null);
+
+    const has_c = std.mem.eql(u8, r1, "c") or std.mem.eql(u8, r2, "c");
+    const has_d = std.mem.eql(u8, r1, "d") or std.mem.eql(u8, r2, "d");
+    try std.testing.expect(has_c);
+    try std.testing.expect(has_d);
+}
+
+test "subtree iter - deep alternatives" {
+    var backing: [64]TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    var trie = Trie.init(&blocks);
+    var view = trie.to_view();
+
+    try view.insert("abc");
+    try view.insert("adc");
+
+    // Walk to "a" - the common prefix
+    var walker = TrieWalker.init(view, "a");
+    try std.testing.expect(walker.walk_to());
+    try std.testing.expect(!walker.reached_leaf);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var iter = SubtreeIterator{
+        .trie = &trie,
+        .root_block = @intCast(walker.trie_view.current_block),
+    };
+
+    const r1 = iter.next(arena.allocator()).?;
+    const r2 = iter.next(arena.allocator()).?;
+    try std.testing.expect(iter.next(arena.allocator()) == null);
+
+    const has_bc = std.mem.eql(u8, r1, "bc") or std.mem.eql(u8, r2, "bc");
+    const has_dc = std.mem.eql(u8, r1, "dc") or std.mem.eql(u8, r2, "dc");
+    try std.testing.expect(has_bc);
+    try std.testing.expect(has_dc);
+}
+
+test "subtree iter - many children with spillover" {
+    var backing: [128]TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    var trie = Trie.init(&blocks);
+    var view = trie.to_view();
+
+    try view.insert("xa");
+    try view.insert("xb");
+    try view.insert("xc");
+    try view.insert("xd");
+    try view.insert("xe");
+
+    var walker = TrieWalker.init(view, "x");
+    try std.testing.expect(walker.walk_to());
+    try std.testing.expect(!walker.reached_leaf);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var iter = SubtreeIterator{
+        .trie = &trie,
+        .root_block = @intCast(walker.trie_view.current_block),
+    };
+
+    var results: [10][]const u8 = undefined;
+    var count: usize = 0;
+    while (iter.next(arena.allocator())) |r| {
+        results[count] = r;
+        count += 1;
+    }
+
+    try std.testing.expectEqual(@as(usize, 5), count);
+
+    // All 5 suffixes should be present
+    const expected = "abcde";
+    for (expected) |ch| {
+        var found = false;
+        for (results[0..count]) |r| {
+            if (r.len == 1 and r[0] == ch) {
+                found = true;
+                break;
+            }
+        }
+        try std.testing.expect(found);
+    }
+}
+
+test "subtree iter - Documents/Downloads shared prefix" {
+    var backing: [64]TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    var trie = Trie.init(&blocks);
+    var view = trie.to_view();
+
+    try view.insert("Documents");
+    try view.insert("Downloads");
+
+    // Walk to "Do" - shared prefix
+    var walker = TrieWalker.init(view, "Do");
+    try std.testing.expect(walker.walk_to());
+    try std.testing.expect(!walker.reached_leaf);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var iter = SubtreeIterator{
+        .trie = &trie,
+        .root_block = @intCast(walker.trie_view.current_block),
+    };
+
+    const r1 = iter.next(arena.allocator()).?;
+    const r2 = iter.next(arena.allocator()).?;
+    try std.testing.expect(iter.next(arena.allocator()) == null);
+
+    const has_cuments = std.mem.eql(u8, r1, "cuments") or std.mem.eql(u8, r2, "cuments");
+    const has_wnloads = std.mem.eql(u8, r1, "wnloads") or std.mem.eql(u8, r2, "wnloads");
+    try std.testing.expect(has_cuments);
+    try std.testing.expect(has_wnloads);
 }

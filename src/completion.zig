@@ -10,12 +10,15 @@ pub const GetCompletionFlags = packed struct {
     complete_to_directories_not_files: bool = false,
 };
 
+pub const DirValidator = *const fn ([]const u8, []const u8) bool;
+
 pub const CompletionHandler = struct {
     local_history: LocalHistoryCompleter,
     global_history: GlobalHistoryCompleter,
     directory_completer: DirectoryCompleter,
 
     cycle_index: usize = 0,
+    dir_validator: ?DirValidator = null,
 
     pub fn init(trie_blocks: *data.MappedArray(lego_trie.TrieBlock)) CompletionHandler {
         const base = HistoryCompleter.init(trie_blocks);
@@ -46,22 +49,33 @@ pub const CompletionHandler = struct {
         }
 
         var cycle = self.cycle_index;
+        const validate = self.dir_validator orelse is_completion_a_directory;
 
-        if (!flags.complete_to_directories_not_files) {
-            if (self.local_history.get_completion(prefix, flags)) |completion| {
-                if (cycle == 0) {
-                    return completion;
-                } else {
+        if (flags.complete_to_directories_not_files) {
+            // cd mode: iterate history completions, validate each as directory
+            var local_iter = self.local_history.iter(prefix);
+            while (local_iter.next()) |completion| {
+                if (validate(prefix, completion)) {
+                    if (cycle == 0) return completion;
                     cycle -|= 1;
                 }
             }
-
-            if (self.global_history.get_completion(prefix, flags)) |completion| {
-                if (cycle == 0) {
-                    return completion;
-                } else {
+            var global_iter = self.global_history.iter(prefix);
+            while (global_iter.next()) |completion| {
+                if (validate(prefix, completion)) {
+                    if (cycle == 0) return completion;
                     cycle -|= 1;
                 }
+            }
+        } else {
+            // Non-cd: single best result (existing behavior)
+            if (self.local_history.get_completion(prefix, flags)) |completion| {
+                if (cycle == 0) return completion;
+                cycle -|= 1;
+            }
+            if (self.global_history.get_completion(prefix, flags)) |completion| {
+                if (cycle == 0) return completion;
+                cycle -|= 1;
             }
         }
 
@@ -209,6 +223,10 @@ pub const LocalHistoryCompleter = struct {
     pub fn get_completion(self: *LocalHistoryCompleter, prefix: []const u8, flags: GetCompletionFlags) ?[]const u8 {
         return self.completer.get_completion(self.add_prefix(prefix), flags);
     }
+
+    pub fn iter(self: *LocalHistoryCompleter, prefix: []const u8) HistoryIterator {
+        return self.completer.iter(self.add_prefix(prefix));
+    }
 };
 
 pub const GlobalHistoryCompleter = struct {
@@ -223,6 +241,41 @@ pub const GlobalHistoryCompleter = struct {
         const with_prefix = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ @as([]const u8, "GLOBAL_"), prefix }) catch unreachable;
         return self.completer.get_completion(with_prefix, flags);
     }
+
+    pub fn iter(self: *GlobalHistoryCompleter, prefix: []const u8) HistoryIterator {
+        const with_prefix = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ @as([]const u8, "GLOBAL_"), prefix }) catch unreachable;
+        return self.completer.iter(with_prefix);
+    }
+};
+
+pub const HistoryIterator = struct {
+    subtree_iter: ?lego_trie.SubtreeIterator,
+    prefix_extension: []const u8,
+    leaf_only: bool,
+    leaf_returned: bool = false,
+    no_match: bool = false,
+
+    pub fn next(self: *HistoryIterator) ?[]const u8 {
+        if (self.no_match) return null;
+
+        if (self.leaf_only) {
+            if (self.leaf_returned) return null;
+            self.leaf_returned = true;
+            if (self.prefix_extension.len == 0) return null;
+            return alloc.copy_slice_to_gpa(self.prefix_extension);
+        }
+
+        if (self.subtree_iter) |*iter| {
+            if (iter.next(alloc.temp_alloc.allocator())) |subtree_result| {
+                if (self.prefix_extension.len == 0) {
+                    return alloc.copy_slice_to_gpa(subtree_result);
+                }
+                return std.mem.concat(alloc.gpa.allocator(), u8, &.{ self.prefix_extension, subtree_result }) catch null;
+            }
+        }
+
+        return null;
+    }
 };
 
 pub const HistoryCompleter = struct {
@@ -235,6 +288,33 @@ pub const HistoryCompleter = struct {
     pub fn insert(self: *HistoryCompleter, cmd: []const u8) void {
         var view = self.trie.to_view();
         view.insert(cmd) catch unreachable;
+    }
+
+    pub fn iter(self: *HistoryCompleter, prefix: []const u8) HistoryIterator {
+        const view = self.trie.to_view();
+        var walker = lego_trie.TrieWalker.init(view, prefix);
+        if (!walker.walk_to()) {
+            return .{ .subtree_iter = null, .prefix_extension = "", .leaf_only = false, .no_match = true };
+        }
+
+        // Copy extension to temp_alloc since walker is stack-local
+        const ext = alloc.temp_alloc.allocator().dupe(u8, walker.extension.slice()) catch unreachable;
+
+        if (walker.reached_leaf) {
+            return .{
+                .subtree_iter = null,
+                .prefix_extension = ext,
+                .leaf_only = true,
+            };
+        }
+        return .{
+            .subtree_iter = lego_trie.SubtreeIterator{
+                .trie = &self.trie,
+                .root_block = @intCast(walker.trie_view.current_block),
+            },
+            .prefix_extension = ext,
+            .leaf_only = false,
+        };
     }
 
     pub fn get_completion(self: *HistoryCompleter, prefix: []const u8, flags: GetCompletionFlags) ?[]const u8 {
@@ -266,6 +346,22 @@ pub const HistoryCompleter = struct {
         return null;
     }
 };
+
+fn is_completion_a_directory(prefix: []const u8, completion: []const u8) bool {
+    const full = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ prefix, completion }) catch return false;
+
+    // Extract the last word (the path argument).
+    var last_word: []const u8 = full;
+    var words_iter = std.mem.tokenizeAny(u8, full, " ");
+    while (words_iter.next()) |word| {
+        last_word = word;
+    }
+
+    const cwd = std.Io.Dir.cwd();
+    const dir = std.Io.Dir.openDir(cwd, alloc.g_io, last_word, .{}) catch return false;
+    dir.close(alloc.g_io);
+    return true;
+}
 
 fn has_unclosed_quotes(xs: []const u8) bool {
     var double_count: u32 = 0;
@@ -302,4 +398,252 @@ fn is_global_command_heuristic(command: []const u8) bool {
     }
 
     return true;
+}
+
+// --- Tests ---
+
+fn create_test_trie(backing: []lego_trie.TrieBlock, len: *std.atomic.Value(usize), context: *data.MMapContext) lego_trie.Trie {
+    var blocks = data.MappedArray(lego_trie.TrieBlock){
+        .len = len,
+        .map = backing,
+        .mmap_context = context,
+    };
+    return lego_trie.Trie.init(&blocks);
+}
+
+test "HistoryIterator - leaf returns extension once" {
+    var backing: [64]lego_trie.TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(lego_trie.TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    const trie = lego_trie.Trie.init(&blocks);
+    var completer = HistoryCompleter{ .trie = trie };
+
+    completer.insert("cd Documents");
+
+    // Query for "cd Doc" - should match and return leaf extension "uments"
+    var iter = completer.iter("cd Doc");
+    const result = iter.next();
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("uments", result.?);
+
+    // Should return null on second call
+    try std.testing.expect(iter.next() == null);
+}
+
+test "HistoryIterator - iterates multiple branches" {
+    var backing: [128]lego_trie.TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(lego_trie.TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    const trie = lego_trie.Trie.init(&blocks);
+    var completer = HistoryCompleter{ .trie = trie };
+
+    completer.insert("cd Documents");
+    completer.insert("cd Downloads");
+
+    // Query "cd Do" - should get both completions
+    var iter = completer.iter("cd Do");
+    const r1 = iter.next();
+    try std.testing.expect(r1 != null);
+    const r2 = iter.next();
+    try std.testing.expect(r2 != null);
+    try std.testing.expect(iter.next() == null);
+
+    const has_cuments = std.mem.eql(u8, r1.?, "cuments") or std.mem.eql(u8, r2.?, "cuments");
+    const has_wnloads = std.mem.eql(u8, r1.?, "wnloads") or std.mem.eql(u8, r2.?, "wnloads");
+    try std.testing.expect(has_cuments);
+    try std.testing.expect(has_wnloads);
+}
+
+test "HistoryIterator - no match returns null" {
+    var backing: [64]lego_trie.TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(lego_trie.TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    const trie = lego_trie.Trie.init(&blocks);
+    var completer = HistoryCompleter{ .trie = trie };
+
+    completer.insert("git status");
+
+    // No match for this prefix
+    var iter = completer.iter("cd ");
+    try std.testing.expect(iter.next() == null);
+}
+
+// Mock dir validator for testing: checks against a hardcoded set of valid dirs
+const TestValidDirs = struct {
+    var valid: [8][]const u8 = undefined;
+    var count: usize = 0;
+
+    fn reset() void {
+        count = 0;
+    }
+
+    fn add(dir: []const u8) void {
+        valid[count] = dir;
+        count += 1;
+    }
+
+    fn validator(prefix: []const u8, completion: []const u8) bool {
+        const full = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ prefix, completion }) catch return false;
+        var last_word: []const u8 = full;
+        var words_iter = std.mem.tokenizeAny(u8, full, " ");
+        while (words_iter.next()) |word| {
+            last_word = word;
+        }
+        for (valid[0..count]) |d| {
+            if (std.mem.eql(u8, last_word, d)) return true;
+        }
+        return false;
+    }
+};
+
+test "CompletionHandler - cd mode skips invalid dirs" {
+    alloc.g_io = std.testing.io;
+
+    var backing: [256]lego_trie.TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(lego_trie.TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    const trie = lego_trie.Trie.init(&blocks);
+    const base = HistoryCompleter{ .trie = trie };
+    var handler = CompletionHandler{
+        .global_history = .{ .completer = base },
+        .local_history = .{ .completer = base },
+        .directory_completer = .{},
+        .dir_validator = &TestValidDirs.validator,
+    };
+
+    // Set a deterministic cwd path for local history
+    handler.local_history.cwd_path = "TEST_CWD";
+
+    // Pre-populate directory completer to prevent real I/O
+    handler.directory_completer.rel_dir = alloc.copy_slice_to_gpa("");
+    handler.directory_completer.files = alloc.new_arraylist(DirectoryCompleter.FileInfo);
+
+    // Insert history entries
+    handler.local_history.insert("cd deploy.sh");
+    handler.local_history.insert("cd Documents");
+
+    // Set up mock: only "Documents" is a valid directory
+    TestValidDirs.reset();
+    TestValidDirs.add("Documents");
+
+    // Should skip "deploy.sh" and return the completion for "Documents"
+    handler.cycle_index = 0;
+    const result = handler.get_completion("cd D", .{ .complete_to_directories_not_files = true });
+    try std.testing.expect(result != null);
+
+    // The completion should end with "ocuments" (extending "cd D" -> "cd Documents")
+    const full = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ "cd D", result.? }) catch unreachable;
+    var last_word: []const u8 = full;
+    var words_iter = std.mem.tokenizeAny(u8, full, " ");
+    while (words_iter.next()) |word| {
+        last_word = word;
+    }
+    try std.testing.expectEqualStrings("Documents", last_word);
+}
+
+test "CompletionHandler - cd mode cycles through valid dirs" {
+    alloc.g_io = std.testing.io;
+
+    var backing: [256]lego_trie.TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(lego_trie.TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    const trie = lego_trie.Trie.init(&blocks);
+    const base = HistoryCompleter{ .trie = trie };
+    var handler = CompletionHandler{
+        .global_history = .{ .completer = base },
+        .local_history = .{ .completer = base },
+        .directory_completer = .{},
+        .dir_validator = &TestValidDirs.validator,
+    };
+
+    handler.local_history.cwd_path = "TEST_CWD";
+    handler.directory_completer.rel_dir = alloc.copy_slice_to_gpa("");
+    handler.directory_completer.files = alloc.new_arraylist(DirectoryCompleter.FileInfo);
+
+    handler.local_history.insert("cd Documents");
+    handler.local_history.insert("cd Downloads");
+
+    // Both are valid directories
+    TestValidDirs.reset();
+    TestValidDirs.add("Documents");
+    TestValidDirs.add("Downloads");
+
+    // cycle 0 and cycle 1 should give different results
+    handler.cycle_index = 0;
+    const r0 = handler.get_completion("cd D", .{ .complete_to_directories_not_files = true });
+    try std.testing.expect(r0 != null);
+
+    handler.cycle_index = 1;
+    const r1 = handler.get_completion("cd D", .{ .complete_to_directories_not_files = true });
+    try std.testing.expect(r1 != null);
+
+    // Both should produce valid completions and they should be different
+    try std.testing.expect(!std.mem.eql(u8, r0.?, r1.?));
+
+    // cycle 2 should fall through to directory completer (empty) -> null
+    handler.cycle_index = 2;
+    const r2 = handler.get_completion("cd D", .{ .complete_to_directories_not_files = true });
+    try std.testing.expect(r2 == null);
+}
+
+test "CompletionHandler - non-cd mode unchanged" {
+    alloc.g_io = std.testing.io;
+
+    var backing: [256]lego_trie.TrieBlock = undefined;
+    var len = std.atomic.Value(usize).init(0);
+    var test_context = data.MMapContext{};
+    var blocks = data.MappedArray(lego_trie.TrieBlock){
+        .len = &len,
+        .map = &backing,
+        .mmap_context = &test_context,
+    };
+
+    const trie = lego_trie.Trie.init(&blocks);
+    const base = HistoryCompleter{ .trie = trie };
+    var handler = CompletionHandler{
+        .global_history = .{ .completer = base },
+        .local_history = .{ .completer = base },
+        .directory_completer = .{},
+    };
+
+    handler.local_history.cwd_path = "TEST_CWD";
+    handler.directory_completer.rel_dir = alloc.copy_slice_to_gpa("");
+    handler.directory_completer.files = alloc.new_arraylist(DirectoryCompleter.FileInfo);
+
+    handler.local_history.insert("git status");
+
+    handler.cycle_index = 0;
+    const result = handler.get_completion("git s", .{});
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("tatus", result.?);
 }
