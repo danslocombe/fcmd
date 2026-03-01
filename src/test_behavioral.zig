@@ -469,3 +469,58 @@ test "PATH cycles through multiple matches" {
     try expectCompletion(&bt, "gi", no_flag, 1, "t");
     try expectNoCompletion(&bt, "gi", no_flag, 2);
 }
+
+// ===========================================================================
+// Environment variable expansion tests
+// ===========================================================================
+
+const expand_env_vars = test_exports.run.expand_env_vars;
+
+fn mock_env_lookup(name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, name, "HOME")) return "/users/alice";
+    if (std.mem.eql(u8, name, "A")) return "val_a";
+    if (std.mem.eql(u8, name, "B")) return "val_b";
+    return null;
+}
+
+test "expand_env_vars: simple expansion" {
+    alloc.g_io = std.testing.io;
+    const result = expand_env_vars("cd %HOME%\\Documents", &mock_env_lookup);
+    try std.testing.expectEqualStrings("cd /users/alice\\Documents", result);
+}
+
+test "expand_env_vars: undefined stays literal" {
+    alloc.g_io = std.testing.io;
+    const result = expand_env_vars("echo %NOPE%", &mock_env_lookup);
+    try std.testing.expectEqualStrings("echo %NOPE%", result);
+}
+
+test "expand_env_vars: multiple vars" {
+    alloc.g_io = std.testing.io;
+    const result = expand_env_vars("%A% and %B%", &mock_env_lookup);
+    try std.testing.expectEqualStrings("val_a and val_b", result);
+}
+
+test "expand_env_vars: trailing percent" {
+    alloc.g_io = std.testing.io;
+    const result = expand_env_vars("echo %", &mock_env_lookup);
+    try std.testing.expectEqualStrings("echo %", result);
+}
+
+test "expand_env_vars: empty var name (%%)" {
+    alloc.g_io = std.testing.io;
+    const result = expand_env_vars("echo %%", &mock_env_lookup);
+    try std.testing.expectEqualStrings("echo %%", result);
+}
+
+test "expand_env_vars: no vars passthrough" {
+    alloc.g_io = std.testing.io;
+    const result = expand_env_vars("git status", &mock_env_lookup);
+    try std.testing.expectEqualStrings("git status", result);
+}
+
+test "expand_env_vars: adjacent vars" {
+    alloc.g_io = std.testing.io;
+    const result = expand_env_vars("%A%%B%", &mock_env_lookup);
+    try std.testing.expectEqualStrings("val_aval_b", result);
+}

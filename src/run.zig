@@ -182,6 +182,44 @@ pub fn try_interupt_running_process() bool {
     return false;
 }
 
+pub fn expand_env_vars(input_str: []const u8, lookup: *const fn ([]const u8) ?[]const u8) []const u8 {
+    // Fast path: no % in input, return as-is (zero alloc)
+    if (std.mem.indexOfScalar(u8, input_str, '%') == null) return input_str;
+
+    var result = std.ArrayList(u8).initCapacity(alloc.temp_alloc.allocator(), input_str.len) catch unreachable;
+    var i: usize = 0;
+
+    while (i < input_str.len) {
+        if (input_str[i] == '%') {
+            // Search for closing %
+            if (std.mem.indexOfScalar(u8, input_str[i + 1 ..], '%')) |rel_close| {
+                const var_name = input_str[i + 1 .. i + 1 + rel_close];
+                if (var_name.len == 0) {
+                    // Empty var name (%%) — keep literal
+                    result.appendSlice(alloc.temp_alloc.allocator(), "%%") catch unreachable;
+                    i += 2;
+                } else if (lookup(var_name)) |value| {
+                    result.appendSlice(alloc.temp_alloc.allocator(), value) catch unreachable;
+                    i += 1 + var_name.len + 1; // skip %NAME%
+                } else {
+                    // Undefined variable — keep literal %NAME%
+                    result.appendSlice(alloc.temp_alloc.allocator(), input_str[i .. i + 1 + var_name.len + 1]) catch unreachable;
+                    i += 1 + var_name.len + 1;
+                }
+            } else {
+                // No closing % — append rest as-is
+                result.appendSlice(alloc.temp_alloc.allocator(), input_str[i..]) catch unreachable;
+                break;
+            }
+        } else {
+            result.append(alloc.temp_alloc.allocator(), input_str[i]) catch unreachable;
+            i += 1;
+        }
+    }
+
+    return result.items;
+}
+
 pub const RunResult = struct {
     add_to_history: bool = true,
     exit: bool = false,

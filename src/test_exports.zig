@@ -13,3 +13,4 @@ pub const alloc = @import("alloc.zig");
 pub const log = @import("log.zig");
 pub const windows = @import("windows.zig");
 pub const completion = @import("completion.zig");
+pub const run = @import("run.zig");
