@@ -147,6 +147,14 @@ pub fn get_appdata_path() []const u8 {
     return std.unicode.utf16LeToUtf8Alloc(alloc.gpa.allocator(), buffer[0..len]) catch unreachable;
 }
 
+pub fn get_env_var(name: []const u8) ?[]const u8 {
+    const name_w = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), name) catch return null;
+    var buffer: [32768]u16 = undefined;
+    const len = import.GetEnvironmentVariableW(name_w, &buffer, buffer.len);
+    if (len == 0) return null;
+    return std.unicode.utf16LeToUtf8Alloc(alloc.temp_alloc.allocator(), buffer[0..len]) catch null;
+}
+
 pub fn get_console_width() usize {
     var info: import.CONSOLE_SCREEN_BUFFER_INFO = undefined;
     if (import.GetConsoleScreenBufferInfo(g_stdout, &info) != 0) {

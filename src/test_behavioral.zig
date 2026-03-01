@@ -7,6 +7,7 @@ const completion = test_exports.completion;
 
 const CompletionHandler = completion.CompletionHandler;
 const DirectoryCompleter = completion.DirectoryCompleter;
+const PathCompleter = completion.PathCompleter;
 const GetCompletionFlags = completion.GetCompletionFlags;
 
 // ---------------------------------------------------------------------------
@@ -78,6 +79,31 @@ const MockFS = struct {
 
 var global_mock_fs: MockFS = .{};
 
+// ---------------------------------------------------------------------------
+// MockExeList — fake PATH executables for testing
+// ---------------------------------------------------------------------------
+
+var global_mock_exes: [32][]const u8 = undefined;
+var global_mock_exe_count: usize = 0;
+
+fn mock_exe_list_reset() void {
+    global_mock_exe_count = 0;
+}
+
+fn mock_exe_list_add(name: []const u8) void {
+    global_mock_exes[global_mock_exe_count] = name;
+    global_mock_exe_count += 1;
+}
+
+fn mock_exe_lister() ?std.ArrayList([]const u8) {
+    if (global_mock_exe_count == 0) return null;
+    var list: std.ArrayList([]const u8) = .{};
+    for (global_mock_exes[0..global_mock_exe_count]) |name| {
+        list.append(alloc.gpa.allocator(), alloc.copy_slice_to_gpa(name)) catch unreachable;
+    }
+    return list;
+}
+
 fn mock_dir_validator(prefix: []const u8, comp: []const u8) bool {
     const full = std.mem.concat(alloc.temp_alloc.allocator(), u8, &.{ prefix, comp }) catch return false;
     var last_word: []const u8 = full;
@@ -115,6 +141,7 @@ const BehavioralTest = struct {
 fn init_behavioral_test(bt: *BehavioralTest) void {
     alloc.g_io = std.testing.io;
     global_mock_fs.reset();
+    mock_exe_list_reset();
 
     bt.len = std.atomic.Value(usize).init(0);
     bt.context = .{};
@@ -130,6 +157,7 @@ fn init_behavioral_test(bt: *BehavioralTest) void {
         .global_history = .{ .completer = base },
         .local_history = .{ .completer = base },
         .directory_completer = .{ .file_lister = &mock_file_lister },
+        .path_completer = .{ .exe_lister = &mock_exe_lister },
         .dir_validator = &mock_dir_validator,
     };
     bt.handler.local_history.cwd_path = "TEST_CWD";
@@ -357,4 +385,87 @@ test "cd absolute path history validated" {
     try expectCompletion(&bt, "cd C:\\Us", cd_flag, 0, "ers");
     try expectCompletion(&bt, "cd C:\\Us", cd_flag, 1, "ers"); // dir completer
     try expectNoCompletion(&bt, "cd C:\\Us", cd_flag, 2);
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: PATH completes first word
+// ---------------------------------------------------------------------------
+
+test "PATH completes first word" {
+    var bt: BehavioralTest = undefined;
+    init_behavioral_test(&bt);
+
+    mock_exe_list_add("notepad");
+    mock_exe_list_add("npm");
+
+    try expectCompletion(&bt, "note", no_flag, 0, "pad");
+    try expectCompletion(&bt, "np", no_flag, 0, "m");
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: PATH skipped when prefix contains spaces (arguments)
+// ---------------------------------------------------------------------------
+
+test "PATH skipped for arguments" {
+    var bt: BehavioralTest = undefined;
+    init_behavioral_test(&bt);
+
+    mock_exe_list_add("notepad");
+
+    // "git note" has a space — user is typing an argument, not a command.
+    try expectNoCompletion(&bt, "git note", no_flag, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: PATH skipped in cd mode
+// ---------------------------------------------------------------------------
+
+test "PATH skipped in cd mode" {
+    var bt: BehavioralTest = undefined;
+    init_behavioral_test(&bt);
+
+    mock_exe_list_add("notepad");
+
+    // cd mode should never offer PATH executables.
+    try expectNoCompletion(&bt, "cd note", cd_flag, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: Cycling across history, directory, and PATH sources
+// ---------------------------------------------------------------------------
+
+test "cycling across history directory and PATH" {
+    var bt: BehavioralTest = undefined;
+    init_behavioral_test(&bt);
+
+    // MockFS: cwd has "notes.txt" file
+    const root = MockFS.addDir(&global_mock_fs, "");
+    MockFS.addEntry(root, "notes.txt", false);
+
+    // PATH has "notepad"
+    mock_exe_list_add("notepad");
+
+    // No history for "note" prefix.
+    // cycle 0: directory completer finds "notes.txt"
+    try expectCompletion(&bt, "note", no_flag, 0, "s.txt");
+    // cycle 1: PATH completer finds "notepad"
+    try expectCompletion(&bt, "note", no_flag, 1, "pad");
+    // cycle 2: exhausted
+    try expectNoCompletion(&bt, "note", no_flag, 2);
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: PATH deduplication and cycling
+// ---------------------------------------------------------------------------
+
+test "PATH cycles through multiple matches" {
+    var bt: BehavioralTest = undefined;
+    init_behavioral_test(&bt);
+
+    mock_exe_list_add("gist");
+    mock_exe_list_add("git");
+
+    try expectCompletion(&bt, "gi", no_flag, 0, "st");
+    try expectCompletion(&bt, "gi", no_flag, 1, "t");
+    try expectNoCompletion(&bt, "gi", no_flag, 2);
 }

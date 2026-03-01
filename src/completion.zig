@@ -16,6 +16,7 @@ pub const CompletionHandler = struct {
     local_history: LocalHistoryCompleter,
     global_history: GlobalHistoryCompleter,
     directory_completer: DirectoryCompleter,
+    path_completer: PathCompleter = .{},
 
     cycle_index: usize = 0,
     dir_validator: ?DirValidator = null,
@@ -26,6 +27,7 @@ pub const CompletionHandler = struct {
             .global_history = .{ .completer = base },
             .local_history = .{ .completer = base },
             .directory_completer = .{},
+            .path_completer = .{},
         };
     }
 
@@ -83,6 +85,14 @@ pub const CompletionHandler = struct {
             if (self.directory_completer.get_completion(prefix, cycle, flags)) |completion| {
                 return completion;
             }
+            cycle -|= self.directory_completer.last_match_count;
+        }
+
+        // PATH executable completion — only for the first word, not in cd mode
+        if (!flags.complete_to_directories_not_files) {
+            if (self.path_completer.get_completion(prefix, cycle)) |completion| {
+                return completion;
+            }
         }
 
         return null;
@@ -100,6 +110,7 @@ pub const DirectoryCompleter = struct {
     rel_dir: ?[]const u8 = null,
     files: ?std.ArrayList(FileInfo) = null,
     file_lister: ?FileLister = null,
+    last_match_count: usize = 0,
 
     pub fn clear(self: *DirectoryCompleter) void {
         if (self.rel_dir) |rd| {
@@ -165,6 +176,7 @@ pub const DirectoryCompleter = struct {
 
     pub fn get_completion(self: *DirectoryCompleter, prefix: []const u8, p_cycle: usize, flags: GetCompletionFlags) ?[]const u8 {
         var cycle = p_cycle;
+        self.last_match_count = 0;
 
         // TODO drop all but final word
         var last_word = prefix;
@@ -202,6 +214,8 @@ pub const DirectoryCompleter = struct {
                         continue;
                     }
 
+                    self.last_match_count += 1;
+
                     if (cycle > 0) {
                         cycle -|= 1;
                         continue;
@@ -213,6 +227,117 @@ pub const DirectoryCompleter = struct {
         }
 
         return null;
+    }
+};
+
+pub const PathCompleter = struct {
+    executables: ?std.ArrayList([]const u8) = null,
+    exe_lister: ?ExeLister = null,
+
+    pub const ExeLister = *const fn () ?std.ArrayList([]const u8);
+
+    pub fn get_completion(self: *PathCompleter, prefix: []const u8, p_cycle: usize) ?[]const u8 {
+        // Only complete the first word (no spaces in prefix).
+        if (std.mem.indexOfScalar(u8, prefix, ' ') != null) return null;
+        if (prefix.len == 0) return null;
+
+        self.ensure_loaded();
+
+        const exes = self.executables orelse return null;
+        var cycle = p_cycle;
+
+        for (exes.items) |name| {
+            if (name.len > prefix.len and std.mem.startsWith(u8, name, prefix)) {
+                if (cycle > 0) {
+                    cycle -|= 1;
+                    continue;
+                }
+                return alloc.copy_slice_to_gpa(name[prefix.len..]);
+            }
+        }
+
+        return null;
+    }
+
+    fn ensure_loaded(self: *PathCompleter) void {
+        if (self.executables != null) return;
+
+        if (self.exe_lister) |lister| {
+            self.executables = lister();
+            return;
+        }
+
+        self.executables = scan_path_executables();
+    }
+
+    fn scan_path_executables() ?std.ArrayList([]const u8) {
+        const path_var = windows.get_env_var("PATH") orelse return null;
+
+        var result: std.ArrayList([]const u8) = .{};
+
+        var dir_iter = std.mem.splitScalar(u8, path_var, ';');
+        while (dir_iter.next()) |dir_path| {
+            if (dir_path.len == 0) continue;
+
+            const cwd = std.Io.Dir.cwd();
+            const dir = std.Io.Dir.openDir(cwd, alloc.g_io, dir_path, .{ .iterate = true }) catch continue;
+            defer dir.close(alloc.g_io);
+
+            var iter = dir.iterate();
+            while (iter.next(alloc.g_io) catch null) |entry| {
+                if (entry.kind != std.Io.File.Kind.file) continue;
+
+                const name = entry.name;
+                const ext = extension_of(name) orelse continue;
+                if (!is_executable_ext(ext)) continue;
+
+                // Strip extension
+                const base = name[0 .. name.len - ext.len - 1];
+                if (base.len == 0) continue;
+
+                // Deduplicate: skip if already present
+                var found = false;
+                for (result.items) |existing| {
+                    if (std.ascii.eqlIgnoreCase(existing, base)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    result.append(alloc.gpa.allocator(), alloc.copy_slice_to_gpa(base)) catch continue;
+                }
+            }
+        }
+
+        std.mem.sortUnstable([]const u8, result.items, {}, struct {
+            fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+                return std.ascii.orderIgnoreCase(a, b) == .lt;
+            }
+        }.lessThan);
+
+        return result;
+    }
+
+    fn extension_of(name: []const u8) ?[]const u8 {
+        const dot = std.mem.lastIndexOfScalar(u8, name, '.') orelse return null;
+        if (dot == name.len - 1) return null;
+        return name[dot + 1 ..];
+    }
+
+    fn is_executable_ext(ext: []const u8) bool {
+        return std.ascii.eqlIgnoreCase(ext, "exe") or
+            std.ascii.eqlIgnoreCase(ext, "cmd") or
+            std.ascii.eqlIgnoreCase(ext, "bat");
+    }
+
+    pub fn clear(self: *PathCompleter) void {
+        if (self.executables) |*exes| {
+            for (exes.items) |name| {
+                alloc.gpa.allocator().free(name);
+            }
+            exes.deinit(alloc.gpa.allocator());
+            self.executables = null;
+        }
     }
 };
 
