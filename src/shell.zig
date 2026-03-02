@@ -53,13 +53,12 @@ pub const Shell = struct {
             switch (command) {
                 .Run => {
                     const cmd = self.prompt.bs.items;
-                    const expanded = run.expand_env_vars(cmd, &windows.get_env_var);
 
                     // @TODO Handle this nicely
                     std.debug.print("\n", .{});
                     self.prev_cursor_row = 0;
 
-                    var run_result = run.run(expanded);
+                    var run_result = run.run(cmd);
 
                     if (run_result.exit) return true;
 

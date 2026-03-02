@@ -24,7 +24,8 @@ pub const FroggyCommand = union(enum) {
     pub fn execute(self: FroggyCommand) RunResult {
         switch (self) {
             .Cd => |cd| {
-                const utf16_buffer = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), cd) catch unreachable;
+                const expanded_cd = expand_env_vars(cd, &windows.get_env_var);
+                const utf16_buffer = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), expanded_cd) catch unreachable;
                 if (!windows.SetCurrentDirectoryW(utf16_buffer.ptr)) {
                     std.debug.print("CD Error {}\n", .{windows.GetLastError()});
                     return .{ .add_to_history = false };
@@ -33,7 +34,8 @@ pub const FroggyCommand = union(enum) {
                 return .{};
             },
             .Echo => |e| {
-                const with_newline = std.mem.concat(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ e, "\n" }) catch unreachable;
+                const expanded_e = expand_env_vars(e, &windows.get_env_var);
+                const with_newline = std.mem.concat(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ expanded_e, "\n" }) catch unreachable;
                 windows.write_console(with_newline);
                 return .{};
             },
