@@ -11,9 +11,14 @@ const lego_trie = @import("datastructures/lego_trie.zig");
 
 pub var g_shell: Shell = undefined;
 
+// Changelog
+// ----------------------
+// v0.01.2 - Fix bug where commands that are an exact prefix of other commands would not
+//           correctly update costs.
+
 fn printUsage() void {
     const usage =
-        \\Fcmd v0.01.1
+        \\Fcmd v0.01.2
         \\
         \\Usage:
         \\  fcmd                                    Run interactive shell
@@ -283,7 +288,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     windows.setup_console();
-    windows.write_console("Fcmd v0.01.1\n");
+    windows.write_console("Fcmd v0.01.2\n");
 
     const appdata: []const u8 = windows.get_appdata_path();
     const fcmd_appdata_dir = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ appdata, "\\fcmd" }, 0) catch unreachable;

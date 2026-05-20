@@ -254,6 +254,26 @@ pub const TrieBlock = struct {
         self.insert_prefix(trie, key);
         self.sort(trie);
     }
+
+    pub fn decrement_empty_leaf_cost(self: *TrieBlock, trie: *Trie) void {
+        var iter = ChildIterator{ .block = self, .trie = trie };
+        while (iter.next()) {
+            const idx = iter.i.?;
+            if (iter.block.metadata.wide) {
+                const n = &iter.block.node_data.wide;
+                if (n.nodes[idx].len() == 0 and n.data[idx].is_leaf) {
+                    n.costs[idx] -|= 1;
+                    return;
+                }
+            } else {
+                const n = &iter.block.node_data.tall;
+                if (n.nodes[idx].len() == 0 and n.data[idx].is_leaf) {
+                    n.costs[idx] -|= 1;
+                    return;
+                }
+            }
+        }
+    }
 };
 
 pub const GetChildResult = struct {
@@ -403,7 +423,11 @@ pub fn NodeData(comptime StringLen: usize, comptime NodeCount: usize) type {
                     }
 
                     if (recurse_key.len == 0) {
-                        // Nothing to do;
+                        const block_id = self.data[i].data;
+                        var block = trie.blocks.at(@intCast(block_id));
+                        block.decrement_empty_leaf_cost(trie);
+                        block.sort(trie);
+
                         return true;
                     }
 

@@ -825,3 +825,176 @@ test "sort correctness across sibling chain boundaries" {
 
     try TestHelpers.validate_trie_structure(&trie);
 }
+
+// ============================================================================
+// Empty-leaf bug investigation
+// ----------------------------------------------------------------------------
+// When a string S that is also a prefix of another stored string S' has been
+// split into a node, S itself is represented by a child with an empty-string
+// edge ("") inside that node's child block. The hypothesis is that re-inserting
+// S does NOT decrement that empty-leaf's cost, and instead duplicate "" entries
+// get appended, because try_insert_along skips entries where common_prefix_len
+// is zero, and common_prefix_len(anything, "") is always 0.
+// ============================================================================
+
+// Counts children whose edge string is exactly empty across a block's sibling
+// chain. Used to detect duplicate empty-leaf entries.
+fn count_empty_edges(block: *lego_trie.TrieBlock, trie: *lego_trie.Trie) usize {
+    var count: usize = 0;
+    var iter = lego_trie.ChildIterator{ .block = block, .trie = trie };
+    while (iter.next()) {
+        const node_slice = if (iter.block.metadata.wide)
+            iter.block.node_data.wide.nodes[iter.i.?].slice()
+        else
+            iter.block.node_data.tall.nodes[iter.i.?].slice();
+        if (node_slice.len == 0) count += 1;
+    }
+    return count;
+}
+
+// Counts total children (any edge) across a block's sibling chain.
+fn count_children(block: *lego_trie.TrieBlock, trie: *lego_trie.Trie) usize {
+    var count: usize = 0;
+    var iter = lego_trie.ChildIterator{ .block = block, .trie = trie };
+    while (iter.next()) count += 1;
+    return count;
+}
+
+// Returns the lowest cost among empty-edge children across the sibling chain,
+// or null if no empty edges exist.
+fn min_empty_edge_cost(block: *lego_trie.TrieBlock, trie: *lego_trie.Trie) ?u16 {
+    var min: ?u16 = null;
+    var iter = lego_trie.ChildIterator{ .block = block, .trie = trie };
+    while (iter.next()) {
+        const node_slice = if (iter.block.metadata.wide)
+            iter.block.node_data.wide.nodes[iter.i.?].slice()
+        else
+            iter.block.node_data.tall.nodes[iter.i.?].slice();
+        if (node_slice.len != 0) continue;
+        const c = if (iter.block.metadata.wide)
+            iter.block.node_data.wide.costs[iter.i.?]
+        else
+            iter.block.node_data.tall.costs[iter.i.?];
+        if (min == null or c < min.?) min = c;
+    }
+    return min;
+}
+
+test "empty-leaf bug - re-inserting a prefix-of-another string should not duplicate the empty leaf" {
+    var backing: [512]lego_trie.TrieBlock = undefined;
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
+
+    // After "ab" + "abc": root has "ab" as a node whose child block contains
+    // exactly two leaves: "" (representing "ab") and "c" (representing "abc").
+    {
+        var view = trie.to_view();
+        try view.insert("ab");
+    }
+    {
+        var view = trie.to_view();
+        try view.insert("abc");
+    }
+
+    {
+        const view = trie.to_view();
+        var walker = lego_trie.TrieWalker.init(view, "ab");
+        try std.testing.expect(walker.walk_to());
+        const child_block = trie.blocks.at(walker.trie_view.current_block);
+
+        try std.testing.expectEqual(@as(usize, 2), count_children(child_block, &trie));
+        try std.testing.expectEqual(@as(usize, 1), count_empty_edges(child_block, &trie));
+    }
+
+    // Re-insert "ab" five more times. Each re-insertion should logically just
+    // bump the existing "" leaf's count - not create new entries.
+    for (0..5) |_| {
+        var view = trie.to_view();
+        try view.insert("ab");
+    }
+
+    const view = trie.to_view();
+    var walker = lego_trie.TrieWalker.init(view, "ab");
+    try std.testing.expect(walker.walk_to());
+    const child_block = trie.blocks.at(walker.trie_view.current_block);
+
+    // Should still be just 2 children. With the bug, this grows by one per re-insert.
+    try std.testing.expectEqual(@as(usize, 2), count_children(child_block, &trie));
+    try std.testing.expectEqual(@as(usize, 1), count_empty_edges(child_block, &trie));
+}
+
+test "empty-leaf bug - re-inserting a prefix should decrement the empty leaf's cost" {
+    var backing: [512]lego_trie.TrieBlock = undefined;
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
+
+    {
+        var view = trie.to_view();
+        try view.insert("ab");
+    }
+    {
+        var view = trie.to_view();
+        try view.insert("abc");
+    }
+
+    const initial_empty_cost = blk: {
+        const view = trie.to_view();
+        var walker = lego_trie.TrieWalker.init(view, "ab");
+        try std.testing.expect(walker.walk_to());
+        const child_block = trie.blocks.at(walker.trie_view.current_block);
+        break :blk min_empty_edge_cost(child_block, &trie).?;
+    };
+
+    for (0..5) |_| {
+        var view = trie.to_view();
+        try view.insert("ab");
+    }
+
+    const view = trie.to_view();
+    var walker = lego_trie.TrieWalker.init(view, "ab");
+    try std.testing.expect(walker.walk_to());
+    const child_block = trie.blocks.at(walker.trie_view.current_block);
+    const post_empty_cost = min_empty_edge_cost(child_block, &trie).?;
+
+    // Cost is BaseCost minus number-of-uses; more uses -> lower cost.
+    // After 5 extra "ab" inserts, the "" leaf's cost should be strictly lower.
+    try std.testing.expect(post_empty_cost < initial_empty_cost);
+}
+
+test "ranking inversion - more frequent prefix-only string should rank first" {
+    // Mirrors the user's reported scenario:
+    //   "cd Q:\\Sydney" is typed often, "cd Q:\\Sydney-MCPSwitch" rarely.
+    // The SubtreeIterator at the "cd Q:\\Sydney" junction should yield the
+    // empty-leaf (representing "Sydney" itself) first, because it's more common.
+    var backing: [2048]lego_trie.TrieBlock = undefined;
+    var context = TestHelpers.create_test_context();
+    var trie = TestHelpers.create_test_trie(&backing, &context);
+
+    for (0..10) |_| {
+        var view = trie.to_view();
+        try view.insert("cd Q:\\Sydney");
+    }
+    {
+        var view = trie.to_view();
+        try view.insert("cd Q:\\Sydney-MCPSwitch");
+    }
+
+    const view = trie.to_view();
+    var walker = lego_trie.TrieWalker.init(view, "cd Q:\\Syd");
+    try std.testing.expect(walker.walk_to());
+    try std.testing.expect(!walker.reached_leaf);
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var iter = lego_trie.SubtreeIterator{
+        .trie = &trie,
+        .root_block = @intCast(walker.trie_view.current_block),
+    };
+
+    // SubtreeIterator.build_result skips empty edges in components, so the
+    // "Sydney" completion comes back as "" (the walker's extension already
+    // covers "ney"). The "-MCPSwitch" completion comes back as "-MCPSwitch".
+    const first = iter.next(arena.allocator()).?;
+    try std.testing.expectEqualSlices(u8, "", first);
+}
