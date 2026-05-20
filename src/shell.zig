@@ -58,7 +58,7 @@ pub const Shell = struct {
                     std.debug.print("\n", .{});
                     self.prev_cursor_row = 0;
 
-                    var run_result = run.run(cmd);
+                    const run_result = run.run(cmd);
 
                     if (run_result.exit) return true;
 
@@ -215,7 +215,7 @@ pub const Shell = struct {
     }
 
     pub fn draw(self: *Shell) void {
-        var built_preprompt = preprompt.build_preprompt();
+        const built_preprompt = preprompt.build_preprompt();
         defer (alloc.gpa.allocator().free(built_preprompt));
 
         var prompt_buffer: []const u8 = self.prompt.bs.items;
@@ -262,7 +262,7 @@ pub const History = struct {
 
     pub fn back(self: *History) ?[]const u8 {
         const new_read_pos = self.buffer.index_from_base_index_and_offset(self.read_pos, -1);
-        var value = self.buffer.buffer[new_read_pos];
+        const value = self.buffer.buffer[new_read_pos];
         if (value.len == 0) {
             return null;
         }
@@ -298,7 +298,7 @@ pub const History = struct {
 
         const cmd_copy = alloc.gpa_alloc_idk(u8, cmd.len);
         @memcpy(cmd_copy, cmd);
-        var discarded = self.buffer.push(cmd_copy);
+        const discarded = self.buffer.push(cmd_copy);
         if (discarded.len > 0) {
             alloc.gpa.allocator().free(discarded);
         }

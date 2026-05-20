@@ -284,7 +284,7 @@ pub const GetChildResult = struct {
     cost: u16,
 };
 
-pub const NodeDataWithIsLeaf = packed struct {
+pub const NodeDataWithIsLeaf = packed struct(u32) {
     data: u30 = 0,
     exists: bool = false,
     is_leaf: bool = false,
@@ -590,7 +590,7 @@ pub const TrieWalker = struct {
     pub fn walk_to(self: *TrieWalker) bool {
         while (true) {
             const current_prefix = self.prefix[self.char_id..];
-            var current = self.trie_view.trie.blocks.at(self.trie_view.current_block);
+            const current = self.trie_view.trie.blocks.at(self.trie_view.current_block);
             self.extension = .{};
 
             if (self.trie_view.step_nomove(current_prefix)) |step_result| {
@@ -968,7 +968,7 @@ test "insert splillover" {
 }
 
 test "iterate spillover" {
-    var strings = [_][]const u8{
+    const strings = [_][]const u8{
         "0",
         "1",
         "2",

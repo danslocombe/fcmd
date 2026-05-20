@@ -461,7 +461,7 @@ pub const HistoryCompleter = struct {
         var walker = lego_trie.TrieWalker.init(view, prefix);
         if (walker.walk_to()) {
             // All of this should be cleaned up, walker so ugly atm.
-            var extension = walker.extension.slice();
+            const extension = walker.extension.slice();
             var end_extension: []const u8 = "";
 
             const add_heuristic_walk = !walker.reached_leaf;

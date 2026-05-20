@@ -21,9 +21,9 @@ pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
     var buffered_utf16_len: usize = 0;
 
     for (0..@intCast(records_read)) |i| {
-        var record = record_buffer[i];
+        const record = record_buffer[i];
         if (record.EventType == windows.KEY_EVENT) {
-            var key_event = record.Event.KeyEvent;
+            const key_event = record.Event.KeyEvent;
             // Only care about keydown events.
             if (key_event.bKeyDown == 0) {
                 continue;

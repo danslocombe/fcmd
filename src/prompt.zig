@@ -59,7 +59,7 @@ pub const Prompt = struct {
                     self.delete_highlighted();
                 }
 
-                var c_slice = c.slice();
+                const c_slice = c.slice();
                 if (self.pos.byte_index == self.bs.items.len) {
                     self.bs.appendSlice(alloc.gpa.allocator(), c_slice) catch unreachable;
                 } else {
@@ -334,7 +334,7 @@ pub const Prompt = struct {
 
     pub fn delete_highlighted(self: *Prompt) void {
         std.debug.assert(self.highlight != null);
-        var highlight = self.highlight.?;
+        const highlight = self.highlight.?;
 
         const after_highlighted = self.bs.items[highlight.end_pos.byte_index..];
         std.mem.copyForwards(u8, self.bs.items[highlight.start_pos.byte_index..], after_highlighted);

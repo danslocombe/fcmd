@@ -1,6 +1,8 @@
 const std = @import("std");
 
-pub var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+// Figure what is best here. Used to be GeneralPurposeAllocator
+// We shouldnt need multithreading..
+pub var gpa = std.heap.DebugAllocator(.{}){};
 pub var temp_alloc = std.heap.ArenaAllocator.init(gpa.allocator());
 pub var g_io: std.Io = undefined;
 

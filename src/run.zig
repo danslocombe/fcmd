@@ -56,7 +56,7 @@ pub const FroggyCommand = union(enum) {
     }
 
     pub fn try_get_froggy_command(cmd: []const u8) ?FroggyCommand {
-        var splits = split_first_word(cmd);
+        const splits = split_first_word(cmd);
 
         if (std.mem.eql(u8, splits.first, "cd")) {
             return .{
@@ -116,7 +116,7 @@ pub fn hack_run_async(cmd: []const u8) bool {
 pub fn run_cmd(cmd: []const u8) RunResult {
     //std.debug.print("Running command {s}\n", .{cmd});
     const command = std.fmt.allocPrintSentinel(alloc.temp_alloc.allocator(), "cmd /C {s}", .{cmd}, 0) catch unreachable;
-    var cmd_buf = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), command) catch unreachable;
+    const cmd_buf = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), command) catch unreachable;
 
     const NORMAL_PRIORITY_CLASS = 0x00000020;
     const CREATE_NEW_PROCESS_GROUP = 0x00000200;

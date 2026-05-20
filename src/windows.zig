@@ -179,7 +179,7 @@ pub fn copy_to_clipboard(s: []const u8) void {
 
     if (import.EmptyClipboard() == 0) @panic("Failed to empty the clipboard");
 
-    var s_utf16: [:0]u16 = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), s) catch unreachable;
+    const s_utf16: [:0]u16 = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), s) catch unreachable;
     const data_handle = import.GlobalAlloc(0, (s_utf16.len + 1) * @sizeOf(u16));
     if (data_handle == null) @panic("GlobalAlloc call failed when trying to copy to the clipboard");
 
@@ -220,4 +220,3 @@ pub fn control_signal_handler(signal: std.os.windows.DWORD) callconv(.c) std.os.
         },
     }
 }
-

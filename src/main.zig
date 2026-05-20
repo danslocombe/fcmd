@@ -13,12 +13,14 @@ pub var g_shell: Shell = undefined;
 
 // Changelog
 // ----------------------
-// v0.01.2 - Fix bug where commands that are an exact prefix of other commands would not
-//           correctly update costs.
+// v0.01.02 - Fix bug where commands that are an exact prefix of other commands would not
+//            correctly update costs.
+
+const current_version: []const u8 = "v0.01.02";
 
 fn printUsage() void {
     const usage =
-        \\Fcmd v0.01.2
+        \\Fcmd v0.01.02
         \\
         \\Usage:
         \\  fcmd                                    Run interactive shell
@@ -288,7 +290,9 @@ pub fn main(init: std.process.Init) !void {
     }
 
     windows.setup_console();
-    windows.write_console("Fcmd v0.01.2\n");
+
+    const startup_str = std.fmt.allocPrint(alloc.temp_alloc, "Fcmd {s}\n", .{current_version});
+    windows.write_console(startup_str);
 
     const appdata: []const u8 = windows.get_appdata_path();
     const fcmd_appdata_dir = std.mem.concatWithSentinel(alloc.temp_alloc.allocator(), u8, &[_][]const u8{ appdata, "\\fcmd" }, 0) catch unreachable;

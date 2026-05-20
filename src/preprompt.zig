@@ -57,7 +57,7 @@ pub fn compress_half_and_half(buffer: []u8, path: []const u8, comptime f0: anyty
     indexes.dest_index += 1;
 
     const t = token_count - half_index - 1;
-    var ret = copy_n_tokens_with_function(buffer[indexes.dest_index..], path[indexes.source_index..], f1, t);
+    const ret = copy_n_tokens_with_function(buffer[indexes.dest_index..], path[indexes.source_index..], f1, t);
     indexes.dest_index += ret.dest_index;
     indexes.source_index += ret.source_index;
 
