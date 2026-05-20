@@ -291,7 +291,7 @@ pub fn main(init: std.process.Init) !void {
 
     windows.setup_console();
 
-    const startup_str = std.fmt.allocPrint(alloc.temp_alloc, "Fcmd {s}\n", .{current_version});
+    const startup_str = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "Fcmd {s}\n", .{current_version}) catch unreachable;
     windows.write_console(startup_str);
 
     const appdata: []const u8 = windows.get_appdata_path();

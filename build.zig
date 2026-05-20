@@ -6,6 +6,9 @@ pub fn build(b: *std.Build) void {
     });
     const optimize = b.standardOptimizeOption(.{});
 
+    const win32_dep = b.dependency("win32", .{});
+    const win32_mod = win32_dep.module("win32");
+
     const exe = b.addExecutable(.{
         .name = "fcmd",
         .root_module = b.createModule(.{
@@ -16,6 +19,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.root_module.link_libc = true;
+    exe.root_module.addImport("win32", win32_mod);
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -36,6 +40,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    unit_tests.root_module.addImport("win32", win32_mod);
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
@@ -48,6 +53,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     basic_tests.root_module.link_libc = true;
+    basic_tests.root_module.addImport("win32", win32_mod);
     const run_basic_tests = b.addRunArtifact(basic_tests);
 
     // Extended trie tests (stress, integrity, edge cases)
@@ -59,6 +65,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     extended_tests.root_module.link_libc = true;
+    extended_tests.root_module.addImport("win32", win32_mod);
     const run_extended_tests = b.addRunArtifact(extended_tests);
 
     // Behavioral tests (mocked filesystem, end-to-end completion scenarios)
@@ -70,6 +77,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     behavioral_tests.root_module.link_libc = true;
+    behavioral_tests.root_module.addImport("win32", win32_mod);
     const run_behavioral_tests = b.addRunArtifact(behavioral_tests);
     run_behavioral_tests.step.dependOn(&run_extended_tests.step);
 
@@ -82,6 +90,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     multiprocess_tests.root_module.link_libc = true;
+    multiprocess_tests.root_module.addImport("win32", win32_mod);
     const run_multiprocess_tests = b.addRunArtifact(multiprocess_tests);
 
     // Multi-process tests spawn fcmd.exe, so they need the exe to be built first
@@ -131,6 +140,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe_check.root_module.link_libc = true;
+    exe_check.root_module.addImport("win32", win32_mod);
     const check = b.step("check", "Check if project compiles");
     check.dependOn(&exe_check.step);
 }
