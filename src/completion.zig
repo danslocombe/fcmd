@@ -273,7 +273,7 @@ pub const PathCompleter = struct {
     fn scan_path_executables() ?std.ArrayList([]const u8) {
         const path_var = windows.get_env_var("PATH") orelse return null;
 
-        var result: std.ArrayList([]const u8) = .{};
+        var result: std.ArrayList([]const u8) = .empty;
 
         var dir_iter = std.mem.splitScalar(u8, path_var, ';');
         while (dir_iter.next()) |dir_path| {

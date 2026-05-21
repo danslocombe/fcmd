@@ -15,12 +15,12 @@ const GetCompletionFlags = completion.GetCompletionFlags;
 // ---------------------------------------------------------------------------
 
 const MockFS = struct {
-    dirs: [16]MockDir = [_]MockDir{.{}} ** 16,
+    dirs: [16]MockDir = @splat(.{}),
     dir_count: usize = 0,
 
     const MockDir = struct {
         path: []const u8 = "",
-        entries: [16]MockEntry = [_]MockEntry{.{}} ** 16,
+        entries: [16]MockEntry = @splat(.{}),
         entry_count: usize = 0,
     };
 
@@ -97,7 +97,7 @@ fn mock_exe_list_add(name: []const u8) void {
 
 fn mock_exe_lister() ?std.ArrayList([]const u8) {
     if (global_mock_exe_count == 0) return null;
-    var list: std.ArrayList([]const u8) = .{};
+    var list: std.ArrayList([]const u8) = .empty;
     for (global_mock_exes[0..global_mock_exe_count]) |name| {
         list.append(alloc.gpa.allocator(), alloc.copy_slice_to_gpa(name)) catch unreachable;
     }
@@ -116,7 +116,7 @@ fn mock_dir_validator(prefix: []const u8, comp: []const u8) bool {
 
 fn mock_file_lister(rel_dir: []const u8) ?std.ArrayList(DirectoryCompleter.FileInfo) {
     const dir = global_mock_fs.findDir(rel_dir) orelse return null;
-    var list: std.ArrayList(DirectoryCompleter.FileInfo) = .{};
+    var list: std.ArrayList(DirectoryCompleter.FileInfo) = .empty;
     for (dir.entries[0..dir.entry_count]) |entry| {
         list.append(alloc.gpa.allocator(), .{
             .name = alloc.copy_slice_to_gpa(entry.name),

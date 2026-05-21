@@ -19,7 +19,7 @@ fn buildVerifyArgs(
     state_path: []const u8,
     strings: []const []const u8,
 ) !std.ArrayList([]const u8) {
-    var args = std.ArrayList([]const u8){};
+    var args: std.ArrayList([]const u8) = .empty;
     try args.append(allocator, exe_path);
     try args.append(allocator, "--test-mp");
     try args.append(allocator, "verify");
@@ -121,7 +121,7 @@ test "bulk_insert" {
         "uu", "vv", "ww", "xx", "yy",
     };
 
-    var insert_args = std.ArrayList([]const u8){};
+    var insert_args: std.ArrayList([]const u8) = .empty;
     defer insert_args.deinit(allocator);
     try insert_args.append(allocator, exe_path);
     try insert_args.append(allocator, "--test-mp");
@@ -170,7 +170,7 @@ test "bulk_insert_then_concurrent_reads" {
 
     // Phase 1: single insert_many process writes all strings.
     {
-        var insert_args = std.ArrayList([]const u8){};
+        var insert_args: std.ArrayList([]const u8) = .empty;
         defer insert_args.deinit(allocator);
         try insert_args.append(allocator, exe_path);
         try insert_args.append(allocator, "--test-mp");

@@ -17,7 +17,7 @@ pub const ProcessController = struct {
     pub fn init(allocator: std.mem.Allocator) ProcessController {
         return .{
             .allocator = allocator,
-            .processes = std.ArrayList(std.process.Child){},
+            .processes = .empty,
         };
     }
 

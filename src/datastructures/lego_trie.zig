@@ -536,7 +536,7 @@ pub const TrieWalker = struct {
         // may be typing
         // Eg the prefix "gi" may complete to "git" instead of "git status" which is the first
         // leaf as there are many other leaves with low costs eg "git log"
-        var components = std.ArrayList([]const u8){};
+        var components: std.ArrayList([]const u8) = .empty;
         while (true) {
             var current = self.trie_view.trie.blocks.at(self.trie_view.current_block);
             if (current.get_child_size() == 0) {
@@ -700,7 +700,7 @@ pub const SubtreeIterator = struct {
 
     /// Build the result string by concatenating edge strings from all stack entries.
     fn build_result(self: *SubtreeIterator, allocator: std.mem.Allocator) ?[]const u8 {
-        var components = std.ArrayList([]const u8){};
+        var components: std.ArrayList([]const u8) = .empty;
         for (self.stack[0..self.stack_len]) |entry| {
             var block = self.trie.blocks.at(@intCast(entry.block_id));
             if (block.get_child_at_index(self.trie, entry.child_index)) |child| {

@@ -72,13 +72,13 @@ pub const FroggyCommand = union(enum) {
 
         if (std.mem.eql(u8, splits.first, "ls")) {
             return .{
-                .Ls = void{},
+                .Ls = {},
             };
         }
 
         if (std.mem.eql(u8, splits.first, "exit")) {
             return .{
-                .Exit = void{},
+                .Exit = {},
             };
         }
 

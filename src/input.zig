@@ -11,7 +11,7 @@ pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
 
     // Use an arraylist instead of a static buffer as
     // this can get large if there is a long line copy/pasted.
-    var console_input_buffer = std.ArrayList(ConsoleInput){};
+    var console_input_buffer: std.ArrayList(ConsoleInput) = .empty;
 
     // Keep a buffer for multi u16 utf codepoints
     var buffered_utf16_chars: [4]u16 = alloc.zeroed(u16, 4);
@@ -66,7 +66,7 @@ pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
         windows.buffered_ctrl_c = false;
 
         input_buffer.append(alloc.gpa.allocator(), Input{
-            .Copy = void{},
+            .Copy = {},
         }) catch unreachable;
     }
 
@@ -176,18 +176,18 @@ pub fn try_parse_console_inputs_as_escape_sequence(cis: []const ConsoleInput) ?I
 
         if (escape_sequence_equal("A", cis[2..])) {
             return Input{
-                .Up = void{},
+                .Up = {},
             };
         }
 
         if (escape_sequence_equal("B", cis[2..])) {
             return Input{
-                .Down = void{},
+                .Down = {},
             };
         }
 
         if (escape_sequence_equal("Z", cis[2..])) {
-            return Input{ .PartialCompleteReverse = void{} };
+            return Input{ .PartialCompleteReverse = {} };
         }
 
         {
@@ -257,10 +257,10 @@ pub const Input = union(enum) {
         if (ci.key == 0x08) {
             if (has_ctrl) {
                 return .{
-                    .DeleteBlock = void{},
+                    .DeleteBlock = {},
                 };
             } else {
-                return .{ .Delete = void{} };
+                return .{ .Delete = {} };
             }
         }
 
@@ -301,72 +301,72 @@ pub const Input = union(enum) {
 
         if (ci.utf8_char.bs[0] == '\r') {
             return Input{
-                .Enter = void{},
+                .Enter = {},
             };
         }
 
         if (ci.utf8_char.bs[0] == '\n') {
             return Input{
-                .Enter = void{},
+                .Enter = {},
             };
         }
 
         if (ci.utf8_char.bs[0] == '\t') {
             return Input{
-                .PartialComplete = void{},
+                .PartialComplete = {},
             };
         }
 
         // Ctrl + F
         if (ci.utf8_char.bs[0] == '\x06') {
             return Input{
-                .Complete = void{},
+                .Complete = {},
             };
         }
 
         // Ctrl + P
         if (ci.utf8_char.bs[0] == '\x10') {
             return Input{
-                .Up = void{},
+                .Up = {},
             };
         }
 
         // Ctrl + N
         if (ci.utf8_char.bs[0] == '\x0E') {
             return Input{
-                .Down = void{},
+                .Down = {},
             };
         }
 
         // Ctrl + L
         if (ci.utf8_char.bs[0] == '\x0C') {
             return Input{
-                .Cls = void{},
+                .Cls = {},
             };
         }
 
         // Del character
         if (ci.utf8_char.bs[0] == '\x7F') {
             if (has_ctrl) {
-                return .{ .DeleteBlock = void{} };
+                return .{ .DeleteBlock = {} };
             } else {
-                return .{ .Delete = void{} };
+                return .{ .Delete = {} };
             }
         }
 
         // Backspace char
         if (ci.utf8_char.bs[0] == '\x08') {
-            return .{ .DeleteBlock = void{} };
+            return .{ .DeleteBlock = {} };
         }
 
         // Ctrl + A
         if (ci.utf8_char.bs[0] == '\x01') {
-            return .{ .SelectAll = void{} };
+            return .{ .SelectAll = {} };
         }
 
         // Ctrl + X
         if (ci.utf8_char.bs[0] == '\x18') {
-            return .{ .Cut = void{} };
+            return .{ .Cut = {} };
         }
 
         return Input{

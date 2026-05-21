@@ -190,7 +190,7 @@ pub const Shell = struct {
                 },
                 .Cls => {
                     // We love hackin'
-                    var cls = run.FroggyCommand{ .Cls = void{} };
+                    var cls = run.FroggyCommand{ .Cls = {} };
                     _ = cls.execute();
                     self.prev_cursor_row = 0;
                 },

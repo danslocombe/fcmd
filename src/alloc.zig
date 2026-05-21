@@ -17,7 +17,7 @@ pub fn gpa_alloc_idk(comptime T: type, n: usize) []T {
 }
 
 pub fn new_arraylist(comptime T: type) std.ArrayList(T) {
-    return .{};
+    return .empty;
 }
 // Is there a standard library function for this?
 pub fn zeroed(comptime T: type, comptime N: usize) [N]T {

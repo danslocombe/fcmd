@@ -507,9 +507,9 @@ test "maximum string length boundaries (TallStringLen = 22)" {
     var trie = TestHelpers.create_test_trie(&backing, &context);
 
     // Test strings at boundary: 21, 22, 23 characters
-    const str_21 = "a" ** 21; // Just under
-    const str_22 = "b" ** 22; // Exactly at boundary
-    const str_23 = "c" ** 23; // Just over
+    const str_21 = "aaaaaaaaaaaaaaaaaaaaa"; // 21: just under TallStringLen (22)
+    const str_22 = "bbbbbbbbbbbbbbbbbbbbbb"; // 22: exactly at boundary
+    const str_23 = "ccccccccccccccccccccccc"; // 23: just over
 
     const strings = [_][]const u8{ str_21, str_22, str_23 };
 

@@ -306,7 +306,7 @@ pub fn main(init: std.process.Init) !void {
     g_shell.draw();
 
     // Instead of a static buffer we need a resizable list as copy/paste can produce a lot of inputs.
-    var buffer = std.ArrayList(input.Input){};
+    var buffer: std.ArrayList(input.Input) = .empty;
     var should_exit = false;
     while (!should_exit and input.read_input(&buffer)) {
         for (buffer.items) |in| {

@@ -430,7 +430,7 @@ test "block move then delete" {
     prompt.apply_input(.{ .BlockLeft = .{ .highlight = false } });
     try std.testing.expectEqual(@as(usize, 20), prompt.pos.byte_index);
     try std.testing.expectEqual(@as(usize, 20), prompt.pos.x);
-    prompt.apply_input(.{ .DeleteBlock = void{} });
+    prompt.apply_input(.{ .DeleteBlock = {} });
     try std.testing.expectEqualSlices(u8, "git commit -m there", prompt.bs.items);
 }
 
@@ -440,7 +440,7 @@ test "block delete" {
     prompt.pos.byte_index = prompt.bs.items.len;
     prompt.pos.x = prompt.pos.byte_index;
 
-    prompt.apply_input(.{ .DeleteBlock = void{} });
+    prompt.apply_input(.{ .DeleteBlock = {} });
     try std.testing.expectEqualSlices(u8, "git commit -m 'hello", prompt.bs.items);
 }
 
@@ -450,7 +450,7 @@ test "block delete immediate stop char" {
     prompt.pos.byte_index = prompt.bs.items.len;
     prompt.pos.x = prompt.pos.byte_index;
 
-    prompt.apply_input(.{ .DeleteBlock = void{} });
+    prompt.apply_input(.{ .DeleteBlock = {} });
     try std.testing.expectEqualSlices(u8, "git commit -m 'hello there", prompt.bs.items);
 }
 
@@ -460,6 +460,6 @@ test "block delete empty" {
     prompt.pos.byte_index = prompt.bs.items.len;
     prompt.pos.x = prompt.pos.byte_index;
 
-    prompt.apply_input(.{ .DeleteBlock = void{} });
+    prompt.apply_input(.{ .DeleteBlock = {} });
     try std.testing.expectEqualSlices(u8, "", prompt.bs.items);
 }
