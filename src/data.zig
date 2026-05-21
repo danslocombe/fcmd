@@ -5,16 +5,6 @@ const log = @import("log.zig");
 
 const lego_trie = @import("datastructures/lego_trie.zig");
 
-const STANDARD_RIGHTS_REQUIRED = 0x000F0000;
-const SECTION_QUERY: c_int = 0x0001;
-const SECTION_MAP_WRITE: c_int = 0x0002;
-const SECTION_MAP_READ: c_int = 0x0004;
-const SECTION_MAP_EXECUTE: c_int = 0x0008;
-const SECTION_EXTEND_SIZE: c_int = 0x0010;
-const SECTION_MAP_EXECUTE_EXPLICIT: c_int = 0x0020;
-const FILE_MAP_ALL_ACCESS = ((((STANDARD_RIGHTS_REQUIRED | SECTION_QUERY) | SECTION_MAP_WRITE) | SECTION_MAP_READ) | SECTION_MAP_EXECUTE) | SECTION_EXTEND_SIZE;
-const INFINITE = 0xFFFFFFFF;
-
 const magic_number = [_]u8{ 'f', 'r', 'o', 'g' };
 const current_version: u8 = 3;
 
@@ -66,7 +56,7 @@ pub const BackingData = struct {
         log.log_debug("Initializing BackingData for: {s}\n", .{filepath});
 
         // Create named write mutex — serializes all trie writes across processes.
-        const write_mutex = windows.CreateMutexA(null, 0, write_mutex_name);
+        const write_mutex = windows.create_named_mutex(write_mutex_name);
         if (write_mutex == null) {
             const last_error = windows.GetLastError();
             log.log_debug("Failed to create write mutex, Error {}\n", .{last_error});
@@ -74,11 +64,7 @@ pub const BackingData = struct {
         }
         mmap_context.write_mutex = write_mutex.?;
 
-        // Open or create the file
-        const GENERIC_READ = 0x80000000;
-        const GENERIC_WRITE = 0x40000000;
-        const file_handle: ?*anyopaque = windows.CreateFileA(filepath, GENERIC_READ | GENERIC_WRITE, windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE, null, windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, null);
-
+        const file_handle: ?*anyopaque = windows.open_or_create_file_rw(filepath);
         if (file_handle == null) {
             const last_error = windows.GetLastError();
             log.log_debug("CreateFileA failed: Error code {}\n", .{last_error});
@@ -88,7 +74,7 @@ pub const BackingData = struct {
         const size = fixed_map_size;
 
         const map_name = alloc.tmp_for_c_introp("Local\\fcmd_trie_data");
-        const map_handle = windows.CreateFileMapping(file_handle, null, windows.PAGE_READWRITE, 0, @intCast(size), map_name);
+        const map_handle = windows.create_file_mapping_rw(file_handle, @intCast(size), map_name);
         if (map_handle == null) {
             const last_error = windows.GetLastError();
             std.os.windows.CloseHandle(file_handle.?);
@@ -96,7 +82,7 @@ pub const BackingData = struct {
             return error.CannotCreateMapping;
         }
 
-        const map_view = windows.MapViewOfFile(map_handle.?, FILE_MAP_ALL_ACCESS, 0, 0, @intCast(size));
+        const map_view = windows.map_view_all_access(map_handle.?, size);
         if (map_view == null) {
             const last_error = windows.GetLastError();
             std.os.windows.CloseHandle(map_handle.?);
@@ -178,8 +164,8 @@ pub fn MappedArray(comptime T: type) type {
         mmap_context: *MMapContext,
 
         pub fn append(self: *Self, x: T) void {
-            _ = windows.WaitForSingleObject(self.mmap_context.write_mutex, INFINITE);
-            defer _ = windows.ReleaseMutex(self.mmap_context.write_mutex);
+            windows.wait_forever(self.mmap_context.write_mutex);
+            defer windows.release_mutex(self.mmap_context.write_mutex);
 
             const len_val = self.len.load(.monotonic);
             if (len_val >= self.map.len) {

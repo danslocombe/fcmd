@@ -5,10 +5,7 @@ const windows = @import("windows.zig");
 pub fn read_input(input_buffer: *std.ArrayList(Input)) bool {
     // Read from windows api
     var record_buffer: [128]windows.INPUT_RECORD = undefined;
-    var records_read: u32 = 0;
-    if (windows.ReadConsoleInputW(windows.g_stdin, &record_buffer, 128, &records_read) == 0) {
-        return false;
-    }
+    const records_read = windows.read_console_input(&record_buffer) orelse return false;
 
     // Convert windows api records to console inputs
 

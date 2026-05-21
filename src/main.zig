@@ -179,8 +179,8 @@ fn runInsertManyTest(state_path: []const u8, strings: []const [:0]const u8) !u8 
     // to the file." The explicit FlushViewOfFile + UnmapViewOfFile pair ensures the trie
     // data written by the inserts is committed to the file's page cache so that concurrent
     // reader processes that create fresh mappings from the same file see the correct state.
-    _ = windows.FlushViewOfFile(context.backing_data.map_view_pointer, 0);
-    _ = windows.UnmapViewOfFile(context.backing_data.map_view_pointer);
+    windows.flush_view(context.backing_data.map_view_pointer);
+    windows.unmap_view(context.backing_data.map_view_pointer);
 
     std.debug.print("insert_many: inserted {d} strings into {s}\n", .{ strings.len, state_path });
     return 0;
@@ -279,7 +279,7 @@ pub fn main(init: std.process.Init) !void {
         const exit_code = runTestMode(args) catch 1;
         // Use ExitProcess directly: std.process.exit does not terminate background
         // threads spawned by BackingData.init in Zig 0.16-dev, causing a hang.
-        windows.exitProcess(@intCast(exit_code));
+        windows.exit_process(@intCast(exit_code));
     }
 
     var state_dir_override: ?[]const u8 = null;
@@ -323,5 +323,5 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // Flush the trie to disk before exiting. ExitProcess does not flush dirty pages.
-    _ = windows.FlushViewOfFile(context.backing_data.map_view_pointer, 0);
+    windows.flush_view(context.backing_data.map_view_pointer);
 }

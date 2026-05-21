@@ -26,7 +26,7 @@ pub const FroggyCommand = union(enum) {
             .Cd => |cd| {
                 const expanded_cd = expand_env_vars(cd, &windows.get_env_var);
                 const utf16_buffer = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), expanded_cd) catch unreachable;
-                if (!windows.SetCurrentDirectoryW(utf16_buffer.ptr)) {
+                if (!windows.set_current_directory(utf16_buffer.ptr)) {
                     std.debug.print("CD Error {}\n", .{windows.GetLastError()});
                     return .{ .add_to_history = false };
                 }
@@ -144,14 +144,14 @@ pub fn run_cmd(cmd: []const u8) RunResult {
     };
 
     g_current_running_process_info = undefined;
-    if (!windows.CreateProcessW(cmd_buf.ptr, @bitCast(flags), &startup_info, &g_current_running_process_info.?)) {
+    if (!windows.create_process(cmd_buf.ptr, @bitCast(flags), &startup_info, &g_current_running_process_info.?)) {
         g_current_running_process_info = null;
         std.debug.print("Error! Unable to run command '{s}', CreateProcessW error {}\n", .{ cmd, windows.GetLastError() });
         return .{ .add_to_history = false };
     }
 
     if (!hack_run_async(cmd)) {
-        _ = windows.WaitForSingleObject(g_current_running_process_info.?.hThread, windows.INFINITE);
+        windows.wait_forever(g_current_running_process_info.?.hThread);
     }
 
     cleanup_process_handles();
@@ -173,8 +173,7 @@ pub fn cleanup_process_handles() void {
 
 pub fn try_interupt_running_process() bool {
     if (g_current_running_process_info) |current_running_process| {
-        const CTRL_BREAK_EVENT = 1;
-        if (windows.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, current_running_process.dwProcessId) == 0) {
+        if (!windows.send_ctrl_break(current_running_process.dwProcessId)) {
             const err = windows.GetLastError();
             log.log_info("Failed to send ctrl event to running process. Last error {}", .{err});
         }

@@ -11,9 +11,7 @@ const memory = win32.system.memory;
 const fs = win32.storage.file_system;
 const env = win32.system.environment;
 const dataex = win32.system.data_exchange;
-const sysservices = win32.system.system_services;
 
-// Types used by callers.
 pub const INPUT_RECORD = console.INPUT_RECORD;
 pub const KEY_EVENT = 1;
 
@@ -24,106 +22,87 @@ pub const PROCESS_INFORMATION = extern struct {
     dwThreadId: std.os.windows.DWORD,
 };
 
-pub const INFINITE: u32 = 0xFFFFFFFF;
-
-// Raw u32 flag constants so callers can OR them like before.
-pub const OPEN_ALWAYS: u32 = 4;
-pub const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
-pub const FILE_SHARE_READ: u32 = 0x1;
-pub const FILE_SHARE_WRITE: u32 = 0x2;
-pub const PAGE_READWRITE: u32 = 0x4;
-
 const CTRL_C_EVENT: u32 = 0;
 const CTRL_BREAK_EVENT: u32 = 1;
 const CTRL_CLOSE_EVENT: u32 = 2;
 
 const CF_UNICODETEXT: u32 = 13;
+const INFINITE: u32 = 0xFFFFFFFF;
 
 pub fn GetLastError() u32 {
     return @intFromEnum(foundation.GetLastError());
 }
 
-pub fn ReadConsoleInputW(h_input: *anyopaque, buf: [*]INPUT_RECORD, length: u32, num_read: *u32) i32 {
-    return console.ReadConsoleInputW(h_input, buf, length, num_read);
+pub fn read_console_input(buf: []INPUT_RECORD) ?u32 {
+    var n: u32 = 0;
+    if (console.ReadConsoleInputW(g_stdin, buf.ptr, @intCast(buf.len), &n) == 0) return null;
+    return n;
 }
 
-pub fn CreateMutexA(security: ?*anyopaque, initial_owner: i32, name: ?[*:0]const u8) ?*anyopaque {
-    return threading.CreateMutexA(@ptrCast(@alignCast(security)), initial_owner, name);
+pub fn create_named_mutex(name: [:0]const u8) ?*anyopaque {
+    return threading.CreateMutexA(null, 0, name);
 }
 
-pub fn ReleaseMutex(h: ?*anyopaque) i32 {
-    return threading.ReleaseMutex(h);
+pub fn wait_forever(h: ?*anyopaque) void {
+    _ = threading.WaitForSingleObject(h, INFINITE);
 }
 
-pub fn WaitForSingleObject(h: ?*anyopaque, ms: u32) u32 {
-    return @intFromEnum(threading.WaitForSingleObject(h, ms));
+pub fn release_mutex(h: ?*anyopaque) void {
+    _ = threading.ReleaseMutex(h);
 }
 
-pub fn CreateFileA(
-    filename: [*c]const u8,
-    access: u32,
-    share: u32,
-    security: ?*anyopaque,
-    disposition: u32,
-    attributes: u32,
-    template: ?*anyopaque,
-) ?*anyopaque {
+/// Open existing or create new file with read+write access, shared read+write.
+pub fn open_or_create_file_rw(path: [*c]const u8) ?*anyopaque {
+    const GENERIC_READ: u32 = 0x80000000;
+    const GENERIC_WRITE: u32 = 0x40000000;
+    const SHARE_RW: u32 = 0x3;
+    const OPEN_ALWAYS: u32 = 4;
+    const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
     return fs.CreateFileA(
-        filename,
-        @bitCast(access),
-        @bitCast(share),
-        @ptrCast(@alignCast(security)),
-        @enumFromInt(disposition),
-        @bitCast(attributes),
-        template,
+        path,
+        @bitCast(GENERIC_READ | GENERIC_WRITE),
+        @bitCast(SHARE_RW),
+        null,
+        @enumFromInt(OPEN_ALWAYS),
+        @bitCast(FILE_ATTRIBUTE_NORMAL),
+        null,
     );
 }
 
-pub fn CreateFileMapping(
-    file_handle: ?*anyopaque,
-    security: ?*anyopaque,
-    protect: u32,
-    max_size_high: u32,
-    max_size_low: u32,
-    name: ?[*:0]const u8,
-) ?*anyopaque {
-    return memory.CreateFileMappingA(
-        file_handle,
-        @ptrCast(@alignCast(security)),
-        @bitCast(protect),
-        max_size_high,
-        max_size_low,
-        name,
-    );
+pub fn create_file_mapping_rw(file: ?*anyopaque, size: u32, name: [:0]const u8) ?*anyopaque {
+    const PAGE_READWRITE: u32 = 0x4;
+    return memory.CreateFileMappingA(file, null, @bitCast(PAGE_READWRITE), 0, size, name);
 }
 
-pub fn MapViewOfFile(
-    map: ?*anyopaque,
-    access: u32,
-    offset_high: u32,
-    offset_low: u32,
-    num_bytes: usize,
-) ?*anyopaque {
-    return memory.MapViewOfFile(map, @bitCast(access), offset_high, offset_low, num_bytes);
+pub fn map_view_all_access(map: ?*anyopaque, size: usize) ?*anyopaque {
+    const STANDARD_RIGHTS_REQUIRED: u32 = 0x000F0000;
+    const SECTION_QUERY: u32 = 0x0001;
+    const SECTION_MAP_WRITE: u32 = 0x0002;
+    const SECTION_MAP_READ: u32 = 0x0004;
+    const SECTION_MAP_EXECUTE: u32 = 0x0008;
+    const SECTION_EXTEND_SIZE: u32 = 0x0010;
+    const FILE_MAP_ALL_ACCESS: u32 = STANDARD_RIGHTS_REQUIRED | SECTION_QUERY |
+        SECTION_MAP_WRITE | SECTION_MAP_READ | SECTION_MAP_EXECUTE | SECTION_EXTEND_SIZE;
+    return memory.MapViewOfFile(map, @bitCast(FILE_MAP_ALL_ACCESS), 0, 0, size);
 }
 
-pub fn UnmapViewOfFile(base: ?*const anyopaque) i32 {
-    return memory.UnmapViewOfFile(base);
+pub fn flush_view(base: *const anyopaque) void {
+    _ = memory.FlushViewOfFile(base, 0);
 }
 
-pub fn FlushViewOfFile(base: ?*const anyopaque, n: usize) i32 {
-    return memory.FlushViewOfFile(base, n);
+pub fn unmap_view(base: *const anyopaque) void {
+    _ = memory.UnmapViewOfFile(base);
 }
 
-pub fn GenerateConsoleCtrlEvent(event: u32, group: u32) i32 {
-    return console.GenerateConsoleCtrlEvent(event, group);
+pub fn send_ctrl_break(pid: u32) bool {
+    return console.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) != 0;
 }
 
-pub fn SetCurrentDirectoryW(path: [*:0]const u16) bool {
+pub fn set_current_directory(path: [*:0]const u16) bool {
     return env.SetCurrentDirectoryW(path) != 0;
 }
 
-pub fn CreateProcessW(
+pub fn create_process(
     lp_command_line: [*:0]u16,
     creation_flags: u32,
     startup_info: *std.os.windows.STARTUPINFOW,
@@ -145,7 +124,7 @@ pub fn CreateProcessW(
 
 /// Call Win32 ExitProcess directly, bypassing any Zig runtime cleanup that
 /// could block on background threads.
-pub fn exitProcess(exit_code: u32) noreturn {
+pub fn exit_process(exit_code: u32) noreturn {
     threading.ExitProcess(exit_code);
 }
 
@@ -155,15 +134,11 @@ pub var g_stdin: *anyopaque = undefined;
 pub var buffered_ctrl_c = false;
 
 pub fn setup_console() void {
-    const stdin = console.GetStdHandle(console.STD_INPUT_HANDLE);
-    g_stdin = stdin;
-
-    const stdout = console.GetStdHandle(console.STD_OUTPUT_HANDLE);
-    g_stdout = stdout;
+    g_stdin = console.GetStdHandle(console.STD_INPUT_HANDLE);
+    g_stdout = console.GetStdHandle(console.STD_OUTPUT_HANDLE);
 
     set_console_mode();
 
-    // Add handle for Ctrl + C.
     if (console.SetConsoleCtrlHandler(control_signal_handler, 1) == 0) @panic("Failed to set control signal handler");
 }
 
@@ -171,35 +146,30 @@ pub fn set_console_mode() void {
     var current_mode: console.CONSOLE_MODE = @bitCast(@as(u32, 0));
     _ = console.GetConsoleMode(g_stdin, &current_mode);
 
-    const ENABLE_WINDOW_INPUT_U32: u32 = 0x0008;
-    const ENABLE_VIRTUAL_TERMINAL_INPUT_U32: u32 = 0x0200;
-    const ENABLE_VIRTUAL_TERMINAL_PROCESSING_U32: u32 = 0x0004;
+    const ENABLE_WINDOW_INPUT: u32 = 0x0008;
+    const ENABLE_VIRTUAL_TERMINAL_INPUT: u32 = 0x0200;
+    const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x0004;
 
-    const new_mode_u32 = @as(u32, @bitCast(current_mode)) |
-        ENABLE_WINDOW_INPUT_U32 |
-        ENABLE_VIRTUAL_TERMINAL_INPUT_U32 |
-        ENABLE_VIRTUAL_TERMINAL_PROCESSING_U32;
+    const new_mode = @as(u32, @bitCast(current_mode)) |
+        ENABLE_WINDOW_INPUT |
+        ENABLE_VIRTUAL_TERMINAL_INPUT |
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING;
 
-    if (console.SetConsoleMode(g_stdin, @bitCast(new_mode_u32)) == 0) @panic("Failed to set console mode");
+    if (console.SetConsoleMode(g_stdin, @bitCast(new_mode)) == 0) @panic("Failed to set console mode");
 
     const UTF8Codepage = 65001;
-
     if (console.SetConsoleCP(UTF8Codepage) == 0) @panic("Failed to set Console CodePage");
     if (console.SetConsoleOutputCP(UTF8Codepage) == 0) @panic("Failed to set Console Output CodePage");
 }
 
 pub fn word_is_local_path(word: []const u8) bool {
-    if (std.fs.path.isAbsolute(word)) {
-        return false;
-    }
+    if (std.fs.path.isAbsolute(word)) return false;
 
     // @Speed don't format just directly alloc
     const wordZ = std.fmt.allocPrintSentinel(alloc.temp_alloc.allocator(), "{s}", .{word}, 0) catch unreachable;
     const word_u16 = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), wordZ) catch unreachable;
 
-    const file_attributes = fs.GetFileAttributesW(word_u16);
-
-    return file_attributes != fs.INVALID_FILE_ATTRIBUTES;
+    return fs.GetFileAttributesW(word_u16) != fs.INVALID_FILE_ATTRIBUTES;
 }
 
 pub fn get_appdata_path() []const u8 {
@@ -234,23 +204,20 @@ pub fn write_console(cs: []const u8) void {
 }
 
 pub fn copy_to_clipboard(s: []const u8) void {
-    if (dataex.OpenClipboard(null) == 0) {
-        // Failed to open clipboard
-        return;
-    }
+    if (dataex.OpenClipboard(null) == 0) return;
 
     if (dataex.EmptyClipboard() == 0) @panic("Failed to empty the clipboard");
 
     const s_utf16: [:0]u16 = std.unicode.utf8ToUtf16LeAllocZ(alloc.temp_alloc.allocator(), s) catch unreachable;
     const byte_count: usize = (s_utf16.len + 1) * @sizeOf(u16);
-    const data_handle_isize = memory.GlobalAlloc(@bitCast(@as(u32, 0)), byte_count);
-    if (data_handle_isize == 0) @panic("GlobalAlloc call failed when trying to copy to the clipboard");
+    const handle = memory.GlobalAlloc(@bitCast(@as(u32, 0)), byte_count);
+    if (handle == 0) @panic("GlobalAlloc call failed when trying to copy to the clipboard");
 
-    const allocated: [*]u16 = @ptrCast(@alignCast(memory.GlobalLock(data_handle_isize)));
+    const allocated: [*]u16 = @ptrCast(@alignCast(memory.GlobalLock(handle)));
     @memcpy(allocated, s_utf16);
-    _ = dataex.SetClipboardData(CF_UNICODETEXT, @ptrFromInt(@as(usize, @bitCast(data_handle_isize))));
+    _ = dataex.SetClipboardData(CF_UNICODETEXT, @ptrFromInt(@as(usize, @bitCast(handle))));
 
-    _ = memory.GlobalUnlock(data_handle_isize);
+    _ = memory.GlobalUnlock(handle);
     _ = dataex.CloseClipboard();
 }
 
@@ -258,16 +225,12 @@ pub fn control_signal_handler(signal: u32) callconv(.winapi) i32 {
     switch (signal) {
         CTRL_C_EVENT, CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT => {
             if (run.try_interupt_running_process()) {
-                // We have passed the interupt downstream to the running program.
-                // Let it handle it.
+                // Passed the interrupt downstream to the running program.
             } else {
                 buffered_ctrl_c = true;
 
-                // Ugh this is a bit ugly
-                // Is this what we want?
-                // This makes it easy to accidently kill the shell which would be super annoying.
-                // Maybe print a message on how to exit?
                 if (main.g_shell.prompt.highlight != null) {
+                    // Allow ctrl+c to work
                     return 1;
                 } else {
                     write_console("\nTo exit fcmd use the command 'exit'\n");
@@ -276,9 +239,6 @@ pub fn control_signal_handler(signal: u32) callconv(.winapi) i32 {
 
             return 1;
         },
-        else => {
-            // We don't handle any other events
-            return 0;
-        },
+        else => return 0,
     }
 }
