@@ -190,6 +190,34 @@ pub fn try_parse_console_inputs_as_escape_sequence(cis: []const ConsoleInput) ?I
             return Input{ .PartialCompleteReverse = {} };
         }
 
+        // Insert
+        if (escape_sequence_equal("2~", cis[2..])) {
+            return Input{
+                .Noop = {},
+            };
+        }
+
+        // Delete
+        if (escape_sequence_equal("3~", cis[2..])) {
+            return Input{
+                .Noop = {},
+            };
+        }
+
+        // Page up
+        if (escape_sequence_equal("5~", cis[2..])) {
+            return Input{
+                .Noop = {},
+            };
+        }
+
+        // Page down
+        if (escape_sequence_equal("6~", cis[2..])) {
+            return Input{
+                .Noop = {},
+            };
+        }
+
         {
             var chars: [64][]const u8 = undefined;
             for (cis[2..], 0..) |c, i| {
@@ -245,6 +273,8 @@ pub const Input = union(enum) {
     Copy: void,
 
     Enter: void,
+
+    Noop: void,
 
     pub fn try_from_console_input(ci: ConsoleInput) ?Input {
         const has_ctrl = (ci.modifier_keys & 0x08) != 0;
