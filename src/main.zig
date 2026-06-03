@@ -13,10 +13,11 @@ pub var g_shell: Shell = undefined;
 
 // Changelog
 // ----------------------
+// v0.01.03 - Simple comments
 // v0.01.02 - Fix bug where commands that are an exact prefix of other commands would not
 //            correctly update costs.
 
-const current_version: []const u8 = "v0.01.02";
+const current_version: []const u8 = "v0.01.03";
 
 pub fn main(init: std.process.Init) !void {
     alloc.g_io = init.io;
