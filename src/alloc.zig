@@ -61,3 +61,7 @@ pub fn tmp_for_c_introp_fmt(comptime fmt: []const u8, args: anytype) [:0]const u
     @memcpy(copy, result);
     return copy;
 }
+
+pub fn append_format(xs: *std.ArrayList([]const u8), allocator: std.mem.Allocator, comptime fmt: []const u8, args: anytype) void {
+    xs.append(allocator, std.fmt.allocPrint(allocator, fmt, args) catch unreachable) catch unreachable;
+}

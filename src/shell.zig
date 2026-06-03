@@ -215,37 +215,61 @@ pub const Shell = struct {
     }
 
     pub fn draw(self: *Shell) void {
-        const built_preprompt = preprompt.build_preprompt();
-        defer (alloc.gpa.allocator().free(built_preprompt));
+        var styled_segments = render.StyledBufferSegments{};
+
+        const built_preprompt = preprompt.build_preprompt(alloc.temp_alloc.allocator());
+
+        styled_segments.push(render.StyledBuffer{
+            .buffer = built_preprompt,
+            .styling = .None,
+        });
 
         var prompt_buffer: []const u8 = self.prompt.bs.items;
-        const prompt_visual_width = self.prompt.char_len();
+
+        var base_styling: render.Styling = .None;
+        if (run.FroggyCommand.try_get_froggy_command(prompt_buffer)) |froggy| {
+            if (froggy == .Comment) {
+                // Prompt is a comment so style it like one
+                // Note for now we only allow commenting the whole prompt to avoid
+                // dealing with escaping
+                // ie how do we handle `echo '#'`
+                base_styling = .Comment;
+            }
+        }
+
         if (self.prompt.highlight) |highlight| {
             const before_highlight = prompt_buffer[0..highlight.start_pos.byte_index];
             const highlighted = prompt_buffer[highlight.start_pos.byte_index..highlight.end_pos.byte_index];
             const after_highlight = prompt_buffer[highlight.end_pos.byte_index..];
-            prompt_buffer = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "{s}\x1b[42m{s}\x1b[0m{s}", .{ before_highlight, highlighted, after_highlight }) catch unreachable;
+
+            styled_segments.push(render.StyledBuffer{
+                .buffer = before_highlight,
+                .styling = base_styling,
+            });
+            styled_segments.push(render.StyledBuffer{
+                .buffer = highlighted,
+                .styling = .Highlighted,
+            });
+            styled_segments.push(render.StyledBuffer{
+                .buffer = after_highlight,
+                .styling = base_styling,
+            });
+        } else {
+            styled_segments.push(render.StyledBuffer{
+                .buffer = prompt_buffer,
+                .styling = base_styling,
+            });
         }
 
-        var completion_styled: []const u8 = "";
-        var completion_visual_width: usize = 0;
         if (self.current_completion) |completion| {
-            completion_styled = std.fmt.allocPrint(alloc.temp_alloc.allocator(), "\x1b[1m\x1b[36m{s}\x1b[0m", .{completion}) catch unreachable;
-            completion_visual_width = completion.len;
+            styled_segments.push(render.StyledBuffer{
+                .buffer = completion,
+                .styling = .Completion,
+            });
         }
 
-        const result = render.compute_render(
-            alloc.temp_alloc.allocator(),
-            windows.get_console_width(),
-            built_preprompt,
-            prompt_buffer,
-            prompt_visual_width,
-            completion_styled,
-            completion_visual_width,
-            self.prompt.pos.x,
-            built_preprompt.len,
-            self.prev_cursor_row,
-        );
+        const result = render.comput_render_segments(alloc.temp_alloc.allocator(), windows.get_console_width(), styled_segments, self.prompt.pos.x + built_preprompt.len, self.prev_cursor_row);
+
         windows.write_console(result.buffer);
         self.prev_cursor_row = result.cursor_row;
     }
@@ -320,7 +344,7 @@ pub const Command = enum {
 
     Cls,
     Exit,
-    NoOp,
+    Noop,
 
     fn try_get_from_input(in: input.Input) ?Command {
         return switch (in) {
@@ -331,6 +355,7 @@ pub const Command = enum {
             .PartialComplete => Command.PartialComplete,
             .PartialCompleteReverse => Command.PartialCompleteReverse,
             .Cls => Command.Cls,
+            .Noop => Command.Noop,
             else => null,
         };
     }

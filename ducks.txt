@@ -1,0 +1,4 @@
+[x] delete escape sequence needs to be handled
+Delete deletes the char in front of the cursor.
+
+# should comment out command - or there should be a way to "stash" a command

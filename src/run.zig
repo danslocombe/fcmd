@@ -20,6 +20,7 @@ pub const FroggyCommand = union(enum) {
     Ls: void,
     Cls: void,
     Exit: void,
+    Comment: void,
 
     pub fn execute(self: FroggyCommand) RunResult {
         switch (self) {
@@ -52,11 +53,26 @@ pub const FroggyCommand = union(enum) {
                 // (flush trie, release semaphore) before exiting.
                 return .{ .exit = true };
             },
+            .Comment => {
+                return .{
+                    .add_to_history = false,
+                    .exit = false,
+                };
+            },
         }
     }
 
     pub fn try_get_froggy_command(cmd: []const u8) ?FroggyCommand {
         const splits = split_first_word(cmd);
+
+        if (std.mem.startsWith(u8, splits.first, "#")) {
+            // For now commenting only works if it is the first character
+            // this is a workaround for when there is a hash in the middle of another command
+            // ie how do we handle `echo '#'`
+            return .{
+                .Comment = {},
+            };
+        }
 
         if (std.mem.eql(u8, splits.first, "cd")) {
             return .{

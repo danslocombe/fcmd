@@ -1,20 +1,118 @@
 const std = @import("std");
+const alloc = @import("alloc.zig");
 
 pub const RenderResult = struct {
     buffer: []const u8,
     cursor_row: usize,
 };
 
-/// Build the escape-sequence buffer for one draw cycle.
-///
-/// The algorithm:
-///   1. Move up `prev_cursor_row` lines to reach row 0 of the prompt
-///   2. `\r\x1b[J` — carriage return + erase to end of display
-///   3. Write content (preprompt + styled prompt + styled completion)
-///   4. Move cursor from content-end row to the target row
-///   5. Set cursor column with `\x1b[nG` (1-based)
-///
-/// Returns the buffer to write and the new cursor_row (for next draw).
+pub const StyledBufferSegments = struct {
+    count: usize = 0,
+    segments: [16]StyledBuffer = undefined,
+
+    pub fn push(self: *StyledBufferSegments, styled_buffer: StyledBuffer) void {
+        std.debug.assert(self.count < 16);
+        self.segments[self.count] = styled_buffer;
+        self.count += 1;
+    }
+
+    pub fn total_length(self: StyledBufferSegments) usize {
+        var sum: usize = 0;
+        for (0..self.count) |i| {
+            sum += self.segments[i].buffer.len;
+        }
+
+        return sum;
+    }
+};
+
+pub const StyledBuffer = struct {
+    buffer: []const u8,
+    styling: Styling,
+
+    pub fn styled(self: StyledBuffer, allocator: std.mem.Allocator) []const u8 {
+        switch (self.styling) {
+            .None => {
+                return self.buffer;
+            },
+            .Completion => {
+                return std.fmt.allocPrint(allocator, "\x1b[1m\x1b[36m{s}\x1b[0m", .{self.buffer}) catch unreachable;
+            },
+            .Highlighted => {
+                return std.fmt.allocPrint(allocator, "\x1b[42m{s}\x1b[0m", .{self.buffer}) catch unreachable;
+            },
+            .Comment => {
+                return std.fmt.allocPrint(allocator, "\x1b[1m\x1b[32m{s}\x1b[0m", .{self.buffer}) catch unreachable;
+            },
+        }
+    }
+};
+
+pub const Styling = enum {
+    None,
+    Highlighted,
+    Completion,
+    Comment,
+};
+
+pub fn comput_render_segments(
+    allocator: std.mem.Allocator,
+    terminal_width: usize,
+    segments: StyledBufferSegments,
+    cursor_pos: usize,
+    prev_cursor_row: usize,
+) RenderResult {
+    const w = if (terminal_width > 0) terminal_width else 80;
+
+    const cursor_row = cursor_pos / w;
+    const cursor_col = cursor_pos % w;
+
+    const total_length = segments.total_length();
+    // The row the cursor will be on after printing content.
+    const end_row: usize = if (total_length == 0)
+        0
+    else if (total_length % w == 0)
+        // Exact match - cursor will not have wrapped yet
+        total_length / w - 1
+    else
+        (total_length - 1) / w;
+
+    var parts: std.ArrayList([]const u8) = .empty;
+
+    if (prev_cursor_row > 0) {
+        // Move cursor back up
+        alloc.append_format(&parts, allocator, "\x1b[{}A", .{prev_cursor_row});
+    }
+
+    // Carriage return and erase to the end
+    // @TODO do we need to erase to the end of previous rows?
+    parts.append(allocator, "\r\x1b[J") catch unreachable;
+
+    // Write content
+    for (0..segments.count) |i| {
+        const styled = segments.segments[i].styled(allocator);
+        parts.append(allocator, styled) catch unreachable;
+    }
+
+    // Move cursor from content end to target row
+    if (end_row > cursor_row) {
+        alloc.append_format(&parts, allocator, "\x1b[{}A", .{end_row - cursor_row});
+    } else if (cursor_row > end_row) {
+        alloc.append_format(&parts, allocator, "\x1b[{}A", .{cursor_row - cursor_row});
+    }
+
+    // Set cursor column (1-based)
+    alloc.append_format(&parts, allocator, "\x1b[{}G", .{cursor_col + 1});
+
+    const buffer = std.mem.concat(allocator, u8, parts.items) catch unreachable;
+
+    return .{
+        .buffer = buffer,
+        .cursor_row = cursor_row,
+    };
+}
+
+// @Cleanup @Unused
 pub fn compute_render(
     allocator: std.mem.Allocator,
     terminal_width: usize,
@@ -92,6 +190,8 @@ pub fn compute_render(
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+// @TODO Migrate tests to compute_render_segments
 
 fn test_render(
     terminal_width: usize,
