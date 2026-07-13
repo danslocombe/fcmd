@@ -88,12 +88,34 @@ fn escape_sequence_equal(s: []const u8, cis: []const ConsoleInput) bool {
 }
 
 pub fn try_parse_console_inputs_as_escape_sequence(cis: []const ConsoleInput) ?Input {
+    if (cis.len < 2) {
+        return null;
+    }
+
+    if (cis[0].utf8_char.bs[0] == '\x1b' and cis[1].utf8_char.bs[0] == 127) {
+        // Alt + Backspace
+        return .{
+            .DeleteBlock = {},
+        };
+    }
+
     if (cis.len < 3) {
         return null;
     }
 
     // Escape
     if (cis[0].utf8_char.bs[0] == '\x1b' and cis[1].utf8_char.bs[0] == '[') {
+        // Debug printing
+        //if (cis.len < 64) {
+        //    var chars: [64][]const u8 = undefined;
+        //    for (cis[2..], 0..) |c, i| {
+        //        chars[i] = c.utf8_char.bs[0..1];
+        //    }
+
+        //    const full = std.mem.join(alloc.gpa.allocator(), " ", chars[0..(cis.len - 2)]) catch unreachable;
+        //    std.debug.print("Escape sequence Len: {}, Start: ESC [ {s}\n", .{ cis.len, full });
+        //}
+
         if (cis[2].utf8_char.bs[0] == 'D') {
             return Input{
                 .Left = .{},
@@ -218,6 +240,20 @@ pub fn try_parse_console_inputs_as_escape_sequence(cis: []const ConsoleInput) ?I
             };
         }
 
+        // Alt + Left
+        if (escape_sequence_equal("1;3D", cis[2..])) {
+            return Input{
+                .BlockLeft = .{},
+            };
+        }
+
+        // Alt + Right
+        if (escape_sequence_equal("1;3C", cis[2..])) {
+            return Input{
+                .BlockRight = .{},
+            };
+        }
+
         {
             var chars: [64][]const u8 = undefined;
             for (cis[2..], 0..) |c, i| {
@@ -277,7 +313,9 @@ pub const Input = union(enum) {
     Noop: void,
 
     pub fn try_from_console_input(ci: ConsoleInput) ?Input {
+        // Doesn't actually do anything with new keyboard input mode - we use command codes or the utf8 chars below
         const has_ctrl = (ci.modifier_keys & 0x08) != 0;
+        const has_alt = (ci.modifier_keys & 0x01) != 0;
 
         // https://github.com/danslocombe/fishycmd/blob/master/src/CLI/KeyPress.hs
 
@@ -285,7 +323,7 @@ pub const Input = union(enum) {
 
         // Backspace
         if (ci.key == 0x08) {
-            if (has_ctrl) {
+            if (has_ctrl or has_alt) {
                 return .{
                     .DeleteBlock = {},
                 };
@@ -296,7 +334,7 @@ pub const Input = union(enum) {
 
         // Left arrow
         if (ci.key == 0x25) {
-            if (has_ctrl) {
+            if (has_ctrl or has_alt) {
                 return .{ .BlockLeft = .{} };
             } else {
                 return .{ .Left = .{} };
@@ -305,7 +343,7 @@ pub const Input = union(enum) {
 
         // Right arrow
         if (ci.key == 0x27) {
-            if (has_ctrl) {
+            if (has_ctrl or has_alt) {
                 return .{ .BlockRight = .{} };
             } else {
                 return .{ .Right = .{} };
@@ -377,14 +415,14 @@ pub const Input = union(enum) {
 
         // Del character
         if (ci.utf8_char.bs[0] == '\x7F') {
-            if (has_ctrl) {
+            if (has_ctrl or has_alt) {
                 return .{ .DeleteBlock = {} };
             } else {
                 return .{ .Delete = {} };
             }
         }
 
-        // Backspace char
+        // Ctrl+backspace
         if (ci.utf8_char.bs[0] == '\x08') {
             return .{ .DeleteBlock = {} };
         }
